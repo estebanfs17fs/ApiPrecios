@@ -23,7 +23,7 @@ class TestCliListar:
     def test_listar_con_limite(self, runner: CliRunner, productos_db):
         result = runner.invoke(cli, ["listar", "--limite", "2"])
         assert result.exit_code == 0
-        lines = [l for l in result.output.split("\n") if "]" in l]
+        lines = [line for line in result.output.split("\n") if "]" in line]
         assert len(lines) <= 2
 
 

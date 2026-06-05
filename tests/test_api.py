@@ -1,4 +1,3 @@
-import pytest
 
 
 class TestListarProductos:
@@ -92,7 +91,8 @@ class TestListarCategorias:
 
 
 class TestScrapear:
-    def test_endpoint_existe(self, client):
+    def test_endpoint_existe(self, client, monkeypatch):
+        monkeypatch.setattr("precios_uy.api.routes.get_all_scrapers", lambda: [])
         resp = client.post("/api/scrapear")
         assert resp.status_code == 200
         data = resp.json()

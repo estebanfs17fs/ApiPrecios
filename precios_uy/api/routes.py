@@ -5,14 +5,14 @@ from fastapi import APIRouter, Query
 
 from precios_uy.cache import is_cache_fresh, mark_scrape
 from precios_uy.database import (
-    obtener_ultimos_precios,
     buscar_productos,
     comparar_productos,
-    obtener_supermercados,
+    guardar_productos,
     obtener_categorias,
+    obtener_supermercados,
+    obtener_ultimos_precios,
 )
 from precios_uy.scrapers import get_all_scrapers
-from precios_uy.database import guardar_productos
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")

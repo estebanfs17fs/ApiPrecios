@@ -1,11 +1,10 @@
-import pytest
 
 from precios_uy.database import (
-    guardar_productos,
-    obtener_ultimos_precios,
     buscar_productos,
-    obtener_supermercados,
+    guardar_productos,
     obtener_categorias,
+    obtener_supermercados,
+    obtener_ultimos_precios,
 )
 from precios_uy.models import Producto
 

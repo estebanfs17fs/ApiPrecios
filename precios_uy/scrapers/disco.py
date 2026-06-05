@@ -59,7 +59,6 @@ class DiscoScraper(ScraperBase):
                     try:
                         nombre_el = item.select_one(".desc-top h3 a")
                         precio_el = item.select_one(".product-prices .price .val")
-                        precio_anterior_el = item.select_one(".product-prices .before .val")
                         img_el = item.select_one("figure img")
                         link_el = item.select_one(".desc-top h3 a")
 

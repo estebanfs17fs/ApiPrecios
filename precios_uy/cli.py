@@ -2,18 +2,15 @@ import logging
 
 import click
 
-from precios_uy.cache import is_cache_fresh, mark_scrape
+from precios_uy.cache import is_cache_fresh
 from precios_uy.config import setup_logging
 from precios_uy.database import (
-    init,
-    guardar_productos,
-    obtener_ultimos_precios,
     buscar_productos,
+    init,
     obtener_supermercados,
-    comparar_productos,
+    obtener_ultimos_precios,
 )
-from precios_uy.scrapers import get_all_scrapers, get_scraper
-from precios_uy.scheduler import scheduler, ejecutar_scraping
+from precios_uy.scheduler import ejecutar_scraping, scheduler
 
 logger = logging.getLogger(__name__)
 setup_logging()

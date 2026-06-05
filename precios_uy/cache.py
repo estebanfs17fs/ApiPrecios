@@ -3,7 +3,6 @@ from typing import Optional
 
 from precios_uy.config import settings
 
-
 _last_scrape: Optional[datetime] = None
 
 

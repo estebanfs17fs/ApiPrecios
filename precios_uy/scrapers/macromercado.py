@@ -1,5 +1,4 @@
 import logging
-
 from typing import List
 
 from precios_uy.models import Producto

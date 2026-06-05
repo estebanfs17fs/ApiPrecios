@@ -1,12 +1,11 @@
-import pytest
 
 from precios_uy.scrapers import get_all_scrapers, get_scraper
 from precios_uy.scrapers.base import ScraperBase
-from precios_uy.scrapers.tata import TataScraper
-from precios_uy.scrapers.disco import DiscoScraper
 from precios_uy.scrapers.devoto import DevotoScraper
-from precios_uy.scrapers.tienda_inglesa import TiendaInglesaScraper
+from precios_uy.scrapers.disco import DiscoScraper
 from precios_uy.scrapers.macromercado import MacromercadoScraper
+from precios_uy.scrapers.tata import TataScraper
+from precios_uy.scrapers.tienda_inglesa import TiendaInglesaScraper
 
 
 class TestParsePrecio:

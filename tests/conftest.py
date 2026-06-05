@@ -1,18 +1,17 @@
+import os
+import tempfile
 from typing import Generator
 
 import pytest
+from click.testing import CliRunner
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
-from click.testing import CliRunner
 
-from precios_uy import models
-from precios_uy import database
-from precios_uy.database import init
+from precios_uy import database, models
 from precios_uy.api.server import app
-from precios_uy.models import Producto, Base
-
-import tempfile, os
+from precios_uy.database import init
+from precios_uy.models import Base, Producto
 
 _test_db_file = tempfile.mktemp(suffix=".db")
 TEST_DATABASE_URL = f"sqlite:///{_test_db_file}"

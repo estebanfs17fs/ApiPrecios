@@ -1,7 +1,6 @@
 from datetime import datetime
 
-from precios_uy.models import Producto, Base, init_db
-from precios_uy.database import init
+from precios_uy.models import Base, Producto
 
 
 class TestProducto:
