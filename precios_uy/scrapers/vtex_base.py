@@ -48,7 +48,11 @@ class VtexScraperBase(ScraperBase):
                     if cid:
                         cat_list.append((cid, cname))
         except Exception as e:
-            logger.warning("No se pudo obtener árbol de categorías VTEX para %s: %s", self.supermercado, e)
+            logger.warning(
+                "No se pudo obtener árbol de categorías VTEX para %s: %s",
+                self.supermercado,
+                e,
+            )
         return cat_list
 
     def scrapear(self, max_offset_per_category: int = 500) -> List[Producto]:
@@ -56,7 +60,11 @@ class VtexScraperBase(ScraperBase):
         vistas_keys: Set[str] = set()
         page_size = 50
 
-        logger.info("Iniciando scraping VTEX rápido por categorías para %s (%s)", self.supermercado, self.base_url)
+        logger.info(
+            "Iniciando scraping VTEX rápido por categorías para %s (%s)",
+            self.supermercado,
+            self.base_url,
+        )
 
         cats = self._obtener_ids_categorias()
         targets = [f"fq=C:{cid}" for cid, _ in cats] if cats else [""]
@@ -64,7 +72,7 @@ class VtexScraperBase(ScraperBase):
         for target in targets:
             api_endpoint = f"{self.base_url}/api/catalog_system/pub/products/search"
             param_prefix = f"{target}&" if target else ""
-            
+
             try:
                 init_url = f"{api_endpoint}?{param_prefix}_from=0&_to=0"
                 _, headers = self._get_json(init_url)
@@ -113,10 +121,18 @@ class VtexScraperBase(ScraperBase):
                                 continue
 
                             precio_list = offer.get("ListPrice")
-                            precio_anterior = float(precio_list) if (precio_list and float(precio_list) > float(precio)) else None
+                            has_disc = (
+                                precio_list and float(precio_list) > float(precio)
+                            )
+                            precio_anterior = float(precio_list) if has_disc else None
 
                             categories = p.get("categories", [])
-                            categoria = categories[0].strip("/").split("/")[-1] if categories else None
+                            cat_first = categories[0] if categories else ""
+                            categoria = (
+                                cat_first.strip("/").split("/")[-1]
+                                if cat_first
+                                else None
+                            )
                             marca = p.get("brand")
 
                             images = main_item.get("images", [])

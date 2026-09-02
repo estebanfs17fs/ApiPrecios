@@ -1,9 +1,6 @@
 import logging
 from typing import List
 
-from bs4 import BeautifulSoup
-
-from precios_uy.config import settings
 from precios_uy.models import Producto
 from precios_uy.scrapers.base import ScraperBase
 

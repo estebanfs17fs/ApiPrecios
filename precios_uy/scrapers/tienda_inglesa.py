@@ -58,7 +58,9 @@ class TiendaInglesaScraper(ScraperBase):
                 continue
         return result
 
-    def _scrape_categoria_paginada(self, name: str, cat_id: int, max_pages: int = 5) -> List[Producto]:
+    def _scrape_categoria_paginada(
+        self, name: str, cat_id: int, max_pages: int = 5
+    ) -> List[Producto]:
         result = []
         for page in range(1, max_pages + 1):
             url = f"{self.BASE}/supermercado/{name}/{cat_id}?0,{cat_id},*,0,0,0,0,0,0,0,{page}"
@@ -75,7 +77,10 @@ class TiendaInglesaScraper(ScraperBase):
     def _scrape_lista_api(self, name: str, list_id: int, max_pages: int = 5) -> List[Producto]:
         result = []
         for page in range(1, max_pages + 1):
-            url = f"{self.BASE}/supermercado/listas/{name}/busqueda?{list_id},0,*%3A*%26,0,0,0,,,false,,,,{page}"
+            url = (
+                f"{self.BASE}/supermercado/listas/{name}/busqueda?"
+                f"{list_id},0,*%3A*%26,0,0,0,,,false,,,,{page}"
+            )
             try:
                 soup = self._get_soup(url)
                 items = self._extraer_productos(soup)

@@ -1,4 +1,5 @@
 import logging
+
 from precios_uy.scrapers.vtex_base import VtexScraperBase
 
 logger = logging.getLogger(__name__)

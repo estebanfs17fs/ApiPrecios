@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 from typing import List, Set
+
 from bs4 import BeautifulSoup
 
 from precios_uy.models import Producto
@@ -42,17 +43,27 @@ class BrowserScraperBase(ScraperBase):
             "otras-categorias/91",
         ]
 
-    async def _scrapear_categoria_playwright(self, page, cat_path: str, max_scroll_steps: int = 30) -> List[Producto]:
+    async def _scrapear_categoria_playwright(
+        self, page, cat_path: str, max_scroll_steps: int = 30
+    ) -> List[Producto]:
         productos = []
         url = f"{self.BASE_URL}/products/category/{cat_path}"
-        logger.info("%s: Navegando con Playwright (infinite scroll + lazy load) a %s", self.supermercado, url)
+        logger.info(
+            "%s: Navegando con Playwright (infinite scroll + lazy load) a %s",
+            self.supermercado,
+            url,
+        )
 
         try:
             await page.goto(url, timeout=60000, wait_until="domcontentloaded")
             try:
                 await page.wait_for_selector(".product-item, div.product-card", timeout=10000)
             except Exception:
-                logger.debug("%s: No se encontraron items en DOM inicial para %s", self.supermercado, url)
+                logger.debug(
+                    "%s: No se encontraron items en DOM inicial para %s",
+                    self.supermercado,
+                    url,
+                )
                 return productos
 
             last_count = 0
@@ -69,7 +80,12 @@ class BrowserScraperBase(ScraperBase):
                 if current_count == last_count:
                     stuck_count += 1
                     if stuck_count >= 3:
-                        logger.debug("%s: Infinite scroll finalizado en paso %d (%d items)", self.supermercado, step, current_count)
+                        logger.debug(
+                            "%s: Infinite scroll finalizado en paso %d (%d items)",
+                            self.supermercado,
+                            step,
+                            current_count,
+                        )
                         break
                 else:
                     stuck_count = 0
@@ -153,7 +169,9 @@ class BrowserScraperBase(ScraperBase):
             page = await context.new_page()
 
             for cat in self.categorias:
-                prods = await self._scrapear_categoria_playwright(page, cat, max_scroll_steps=max_scroll_steps)
+                prods = await self._scrapear_categoria_playwright(
+                    page, cat, max_scroll_steps=max_scroll_steps
+                )
                 for p_item in prods:
                     if p_item.url_producto and p_item.url_producto in vistas_urls:
                         continue
@@ -224,5 +242,9 @@ class BrowserScraperBase(ScraperBase):
         try:
             return asyncio.run(self._scrapear_async(max_scroll_steps=max_scroll_steps))
         except Exception as e:
-            logger.warning("%s: Fallo en Playwright (%s), ejecutando fallback HTTP...", self.supermercado, e)
+            logger.warning(
+                "%s: Fallo en Playwright (%s), ejecutando fallback HTTP...",
+                self.supermercado,
+                e,
+            )
             return self.scrapear_fallback_http()
