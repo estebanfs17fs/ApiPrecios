@@ -1,8 +1,10 @@
-
 from precios_uy.scrapers import get_all_scrapers, get_scraper
 from precios_uy.scrapers.base import ScraperBase
 from precios_uy.scrapers.devoto import DevotoScraper
 from precios_uy.scrapers.disco import DiscoScraper
+from precios_uy.scrapers.el_dorado import ElDoradoScraper
+from precios_uy.scrapers.frog import FrogScraper
+from precios_uy.scrapers.kinko import KinkoScraper
 from precios_uy.scrapers.macromercado import MacromercadoScraper
 from precios_uy.scrapers.tata import TataScraper
 from precios_uy.scrapers.tienda_inglesa import TiendaInglesaScraper
@@ -41,7 +43,7 @@ class TestScraperRegistry:
     def test_get_all_scrapers_returns_list(self):
         scrapers = get_all_scrapers()
         assert isinstance(scrapers, list)
-        assert len(scrapers) == 5
+        assert len(scrapers) == 8
 
     def test_get_all_scrapers_are_instances(self):
         for s in get_all_scrapers():
@@ -59,6 +61,18 @@ class TestScraperRegistry:
         s = get_scraper("DISCO")
         assert isinstance(s, DiscoScraper)
 
+    def test_get_scraper_el_dorado(self):
+        s = get_scraper("el_dorado")
+        assert isinstance(s, ElDoradoScraper)
+
+    def test_get_scraper_frog(self):
+        s = get_scraper("frog")
+        assert isinstance(s, FrogScraper)
+
+    def test_get_scraper_kinko(self):
+        s = get_scraper("kinko")
+        assert isinstance(s, KinkoScraper)
+
     def test_get_scraper_devuelve_none_si_no_existe(self):
         assert get_scraper("inexistente") is None
 
@@ -69,6 +83,9 @@ class TestScraperRegistry:
             (DevotoScraper, "Devoto"),
             (TiendaInglesaScraper, "Tienda Inglesa"),
             (MacromercadoScraper, "Macromercado"),
+            (ElDoradoScraper, "El Dorado"),
+            (FrogScraper, "Frog"),
+            (KinkoScraper, "Kinko"),
         ]
         for cls, nombre in casos:
             assert cls().supermercado == nombre
