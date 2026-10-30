@@ -53,6 +53,9 @@ class VtexScraperBase(ScraperBase):
     """
     supermercado: str = "VTEX Store"
     base_url: str = ""
+    # Canal de venta (`sc`). Algunas tiendas solo muestran el catálogo completo
+    # en un canal en particular: sin él, Ta-Ta expone ~200 productos y con sc=4 ~31.000.
+    canal_venta: Optional[int] = None
 
     def __init__(self, base_url: Optional[str] = None, supermercado: Optional[str] = None):
         super().__init__()
@@ -92,11 +95,16 @@ class VtexScraperBase(ScraperBase):
             )
         return []
 
+    def _url_busqueda(self, filtro: str, desde: int, hasta: int) -> str:
+        params = [filtro] if filtro else []
+        if self.canal_venta is not None:
+            params.append(f"sc={self.canal_venta}")
+        params.append(f"_from={desde}&_to={hasta}")
+        return f"{self.base_url}/api/catalog_system/pub/products/search?{'&'.join(params)}"
+
     def _total_resultados(self, filtro: str) -> int:
-        api_endpoint = f"{self.base_url}/api/catalog_system/pub/products/search"
-        prefijo = f"{filtro}&" if filtro else ""
         try:
-            _, headers = self._get_json(f"{api_endpoint}?{prefijo}_from=0&_to=0")
+            _, headers = self._get_json(self._url_busqueda(filtro, 0, 0))
             return int(headers.get("resources", "0-0/0").split("/")[-1])
         except Exception:
             return self.MAX_RESULTADOS_BUSQUEDA
@@ -135,9 +143,7 @@ class VtexScraperBase(ScraperBase):
         targets = self._filtros_a_recorrer(self._obtener_arbol_categorias()) or [""]
 
         for target in targets:
-            api_endpoint = f"{self.base_url}/api/catalog_system/pub/products/search"
-            param_prefix = f"{target}&" if target else ""
-
+            inicio_lote = len(productos)
             cat_total = self._total_resultados(target)
             if cat_total <= 0:
                 continue
@@ -146,7 +152,7 @@ class VtexScraperBase(ScraperBase):
 
             for offset in range(0, limite_offset, page_size):
                 to_idx = min(offset + page_size - 1, limite_offset - 1)
-                url = f"{api_endpoint}?{param_prefix}_from={offset}&_to={to_idx}"
+                url = self._url_busqueda(target, offset, to_idx)
 
                 try:
                     data, _ = self._get_json(url)
@@ -162,8 +168,11 @@ class VtexScraperBase(ScraperBase):
                             vistas_keys.add(pid)
                             productos.append(producto)
                 except Exception as page_err:
-                    logger.debug("Error en página VTEX (%s): %s", url, page_err)
+                    logger.warning("%s: error en página VTEX (%s): %s",
+                                   self.supermercado, url, page_err)
                     continue
+
+            self._entregar_parcial(productos[inicio_lote:])
 
         logger.info("%s: %d productos únicos extraídos en total", self.supermercado, len(productos))
         return productos

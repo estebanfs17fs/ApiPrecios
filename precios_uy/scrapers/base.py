@@ -1,6 +1,6 @@
 import re
 from abc import ABC, abstractmethod
-from typing import List
+from typing import Callable, List, Optional
 
 import cloudscraper
 from bs4 import BeautifulSoup
@@ -16,6 +16,14 @@ class ScraperBase(ABC):
 
     def __init__(self):
         self._scraper = cloudscraper.create_scraper()
+        # si se define, el scraper entrega lotes a medida que avanza (p. ej. por
+        # categoría) para guardarlos sin esperar al final
+        self.guardar_parcial: Optional[Callable[[List[ProductoScrapeado]], int]] = None
+        self.guardados_parciales = 0
+
+    def _entregar_parcial(self, lote: List[ProductoScrapeado]) -> None:
+        if self.guardar_parcial and lote:
+            self.guardados_parciales += self.guardar_parcial(lote) or 0
 
     def _get_soup(self, url: str) -> BeautifulSoup:
         resp = self._scraper.get(

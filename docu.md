@@ -164,7 +164,7 @@ Los selectores CSS están como atributos de clase (`SELECTOR_ITEM`, `SELECTOR_PR
 |---|---|---|
 | `CHROMIUM_PATH` | vacío | Ruta a un Chromium propio |
 | `BROWSER_HEADLESS` | `true` | `false` para ver el navegador mientras scrapea |
-| `SCROLL_MAX_PASOS` | 400 | Tope de vueltas por categoría |
+| `SCROLL_MAX_PASOS` | 1000 | Tope de vueltas por categoría |
 | `SCROLL_PACIENCIA` | 5 | Vueltas sin novedades antes de cortar |
 | `SCROLL_ESPERA_MS` | 4000 | Espera máxima por vuelta |
 

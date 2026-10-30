@@ -40,8 +40,14 @@ def ejecutar_scraping(supermercados: Optional[List[str]] = None) -> dict:
         total = 0
         for scraper in scrapers:
             try:
+                # se guarda a medida que avanza (por categoría) para no perder
+                # todo si el proceso se corta
+                scraper.guardar_parcial = guardar_productos
                 productos = scraper.scrapear()
-                cantidad = guardar_productos(productos)
+                if scraper.guardados_parciales:
+                    cantidad = scraper.guardados_parciales
+                else:
+                    cantidad = guardar_productos(productos)
                 total += cantidad
                 estado_scraping["resultados"][scraper.supermercado] = f"{cantidad} productos"
                 logger.info("%s: %d productos guardados", scraper.supermercado, cantidad)

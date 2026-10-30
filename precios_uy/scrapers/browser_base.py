@@ -29,7 +29,8 @@ Cómo se resuelve ahora:
 import asyncio
 import logging
 import re
-from typing import Dict, List, Optional
+import time
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
@@ -42,6 +43,9 @@ from precios_uy.scrapers.vtex_base import parsear_producto_vtex
 
 logger = logging.getLogger(__name__)
 
+# Devuelve solo los productos que no se leyeron antes (se marcan en el DOM), así
+# el costo no crece con la cantidad de productos ya cargados en la página.
+# `sin_precio` cuenta los que todavía esperan que el lazy loading muestre el precio.
 _JS_EXTRAER = """
 (sel) => {
   const imgUrl = (img) => {
@@ -55,18 +59,28 @@ _JS_EXTRAER = """
     ];
     return cands.find(u => u && !u.startsWith('data:')) || null;
   };
-  const texto = (el) => el ? (el.innerText || el.textContent || '').trim() : null;
-  return Array.from(document.querySelectorAll(sel.item)).map(item => {
+  const texto = (el) => el ? (el.textContent || '').replace(/\\s+/g, ' ').trim() : null;
+  const nuevos = [];
+  let sinPrecio = 0;
+  for (const item of document.querySelectorAll(sel.item)) {
     const nombre = item.querySelector(sel.nombre);
     const link = item.querySelector(sel.link);
-    return {
+    const href = link ? link.getAttribute('href') : null;
+    const precio = texto(item.querySelector(sel.precio));
+    // firma: si el sitio recicla el nodo con otro producto, cambia y se vuelve a leer
+    const firma = (href || '') + '|' + texto(nombre) + '|' + (precio || '');
+    if (item.dataset.puFirma === firma) continue;
+    item.dataset.puFirma = firma;
+    if (!precio) sinPrecio++;
+    nuevos.push({
       nombre: texto(nombre) || (link && link.getAttribute('title')) || null,
-      precio: texto(item.querySelector(sel.precio)),
+      precio: precio,
       precio_anterior: texto(item.querySelector(sel.precio_anterior)),
-      href: link ? link.getAttribute('href') : null,
+      href: href,
       img: imgUrl(item.querySelector('img')),
-    };
-  });
+    });
+  }
+  return {nuevos, sinPrecio};
 }
 """
 
@@ -227,16 +241,18 @@ class BrowserScraperBase(ScraperBase):
 
     # ------------------------------------------------------------------ navegador
 
-    async def _recolectar_dom(self, page, destino: Dict, categoria: str) -> None:
+    async def _recolectar_dom(self, page, destino: Dict, categoria: str) -> int:
+        """Agrega los productos nuevos del DOM. Devuelve cuántos quedan sin precio."""
         try:
-            crudos = await page.evaluate(_JS_EXTRAER, self._selectores)
+            r = await page.evaluate(_JS_EXTRAER, self._selectores)
         except Exception as e:
             logger.debug("%s: error leyendo DOM: %s", self.supermercado, e)
-            return
-        for crudo in crudos:
+            return 0
+        for crudo in r["nuevos"]:
             p = self._desde_dom(crudo, categoria)
             if p:
                 self._agregar(destino, p)
+        return r["sinPrecio"]
 
     async def _click_cargar_mas(self, page) -> bool:
         try:
@@ -252,18 +268,20 @@ class BrowserScraperBase(ScraperBase):
             pass
         return False
 
-    async def _bajar_hasta_el_final(self, page, destino: Dict, categoria: str) -> None:
+    async def _bajar_hasta_el_final(self, page, destino: Dict, categoria: str) -> int:
         """
         Baja de a una pantalla (sin saltear productos) leyendo el DOM en cada paso,
         para que cada producto entre en pantalla y cargue su precio e imagen.
         """
-        for _ in range(200):
-            await page.wait_for_timeout(200)
-            await self._recolectar_dom(page, destino, categoria)
+        sin_precio = 0
+        for _ in range(500):
+            await page.wait_for_timeout(settings.scroll_paso_ms)
+            sin_precio += await self._recolectar_dom(page, destino, categoria)
             if await page.evaluate(_JS_BAJAR_UNA_PANTALLA):
-                await page.wait_for_timeout(200)
-                await self._recolectar_dom(page, destino, categoria)
-                return
+                await page.wait_for_timeout(settings.scroll_paso_ms)
+                sin_precio += await self._recolectar_dom(page, destino, categoria)
+                break
+        return sin_precio
 
     async def _barrido_final(self, page, destino: Dict, categoria: str) -> None:
         """Recorre la página desde arriba para completar precios cargados tarde."""
@@ -278,7 +296,27 @@ class BrowserScraperBase(ScraperBase):
         except Exception:
             return None
 
-    async def _scrapear_url(self, context, url: str, categoria: str) -> List[ProductoScrapeado]:
+    async def _subcategorias(self, page, cat_path: str) -> List[str]:
+        """Links a subcategorías de la categoría actual (rutas más largas que la suya)."""
+        try:
+            hrefs = await page.eval_on_selector_all(
+                f'a[href*="{self.RUTA_CATEGORIA}"]', "els => els.map(e => e.getAttribute('href'))"
+            )
+        except Exception:
+            return []
+        base = cat_path.strip("/") + "/"
+        subs = []
+        for h in hrefs:
+            ruta = urlparse(h).path.split(self.RUTA_CATEGORIA, 1)[-1].strip("/")
+            if ruta.startswith(base) and ruta not in subs:
+                subs.append(ruta)
+        return subs
+
+    async def _scrapear_url(
+        self, context, cat_path: str, categoria: str
+    ) -> Tuple[List[ProductoScrapeado], Optional[int], List[str]]:
+        """Devuelve (productos, total que informa el sitio, subcategorías encontradas)."""
+        url = f"{self.BASE_URL}{self.RUTA_CATEGORIA}{cat_path}"
         dom: Dict[str, ProductoScrapeado] = {}
         red: Dict[str, ProductoScrapeado] = {}
         pendientes = set()
@@ -301,10 +339,12 @@ class BrowserScraperBase(ScraperBase):
             except Exception:
                 logger.debug("%s: sin productos en el DOM inicial de %s", self.supermercado, url)
 
+            inicio = time.monotonic()
             sin_novedad = 0
+            sin_precio = 0
             for paso in range(1, settings.scroll_max_pasos + 1):
                 antes = len(dom) + len(red)
-                await self._bajar_hasta_el_final(page, dom, categoria)
+                sin_precio += await self._bajar_hasta_el_final(page, dom, categoria)
                 estado = await page.evaluate(_JS_ESTADO, self.SELECTOR_ITEM)
                 await self._click_cargar_mas(page)
                 try:
@@ -322,19 +362,28 @@ class BrowserScraperBase(ScraperBase):
                 if len(dom) + len(red) == antes:
                     sin_novedad += 1
                     if sin_novedad >= settings.scroll_paciencia:
-                        logger.debug(
-                            "%s: fin del scroll en el paso %d (%d productos)",
-                            self.supermercado, paso, len(dom),
-                        )
                         break
                 else:
                     sin_novedad = 0
+                if paso % 20 == 0:
+                    logger.info(
+                        "%s: %s, %d productos tras %d vueltas (%.0f s)",
+                        self.supermercado, categoria, len(dom) + len(red), paso,
+                        time.monotonic() - inicio,
+                    )
+            logger.info(
+                "%s: %s, fin del scroll tras %d vueltas en %.0f s",
+                self.supermercado, categoria, paso, time.monotonic() - inicio,
+            )
 
-            await self._barrido_final(page, dom, categoria)
+            # solo hace falta volver a recorrer si quedaron productos sin precio
+            if sin_precio:
+                await self._barrido_final(page, dom, categoria)
             total = await self._total_informado(page)
+            subcategorias = await self._subcategorias(page, cat_path)
         except Exception as e:
             logger.error("%s: error en %s: %s", self.supermercado, url, e)
-            total = None
+            total, subcategorias = None, []
         finally:
             if pendientes:
                 await asyncio.gather(*pendientes, return_exceptions=True)
@@ -353,7 +402,7 @@ class BrowserScraperBase(ScraperBase):
             "%s: %s -> %d productos (DOM %d, red %d)",
             self.supermercado, categoria, len(resultado), len(dom), len(red),
         )
-        return list(resultado.values())
+        return list(resultado.values()), total, subcategorias
 
     async def _descubrir_categorias(self, context) -> List[str]:
         """Lee los links a categorías del menú del sitio."""
@@ -405,10 +454,30 @@ class BrowserScraperBase(ScraperBase):
                     categorias = descubiertas + [
                         c for c in self.categorias if c not in descubiertas
                     ]
-                for cat in categorias:
-                    url = f"{self.BASE_URL}{self.RUTA_CATEGORIA}{cat}"
-                    for prod in await self._scrapear_url(context, url, self._nombre_categoria(cat)):
+                pendientes = list(categorias)
+                hechas = set()
+                while pendientes:
+                    cat = pendientes.pop(0)
+                    if cat in hechas:
+                        continue
+                    hechas.add(cat)
+                    prods, total, subcategorias = await self._scrapear_url(
+                        context, cat, self._nombre_categoria(cat)
+                    )
+                    nuevos = []
+                    for prod in prods:
+                        if self._clave(prod) not in todos:
+                            nuevos.append(prod)
                         self._agregar(todos, prod)
+                    # guardar ya lo de esta categoría: si el proceso se corta, no se pierde
+                    self._entregar_parcial(nuevos)
+                    # si el sitio no deja llegar a todos con scroll, probar por subcategorías
+                    if total and len(prods) < total * 0.95 and subcategorias:
+                        logger.info(
+                            "%s: %s incompleta (%d de %d), se recorren %d subcategorías",
+                            self.supermercado, cat, len(prods), total, len(subcategorias),
+                        )
+                        pendientes[0:0] = [c for c in subcategorias if c not in hechas]
             finally:
                 await browser.close()
 

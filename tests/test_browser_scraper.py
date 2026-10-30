@@ -199,12 +199,17 @@ class ScraperDePrueba(BrowserScraperBase):
 
 @pytest.mark.navegador
 def test_scroll_infinito_con_lazy_loading_y_virtualizacion(sitio, ajustes_navegador):
+    scraper = ScraperDePrueba(sitio)
+    lotes = []
+    scraper.guardar_parcial = lambda lote: lotes.append(lote) or len(lote)
     try:
-        productos = ScraperDePrueba(sitio).scrapear(["almacen/10"])
+        productos = scraper.scrapear(["almacen/10"])
     except Exception as e:  # sin navegador instalado
         pytest.skip(f"Playwright no disponible: {e}")
 
     assert len(productos) == TOTAL_ALMACEN
+    # se entregó para guardar apenas terminó la categoría
+    assert sum(len(lote) for lote in lotes) == TOTAL_ALMACEN
     precios = {p.nombre: p.precio for p in productos}
     assert precios["Arroz marca 0 1 kg"] == 100.5
     assert precios[f"Arroz marca {TOTAL_ALMACEN - 1} 1 kg"] == 100 + TOTAL_ALMACEN - 1 + 0.5
