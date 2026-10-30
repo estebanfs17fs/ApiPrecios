@@ -1,3 +1,4 @@
+import re
 from abc import ABC, abstractmethod
 from typing import List
 
@@ -5,7 +6,9 @@ import cloudscraper
 from bs4 import BeautifulSoup
 
 from precios_uy.config import settings
-from precios_uy.models import Producto
+from precios_uy.models import ProductoScrapeado
+
+_RE_IMPORTE = re.compile(r"\d+(?:\.\d{3})*(?:,\d+)?")
 
 
 class ScraperBase(ABC):
@@ -24,16 +27,12 @@ class ScraperBase(ABC):
         return BeautifulSoup(resp.text, "lxml")
 
     @abstractmethod
-    def scrapear(self) -> List[Producto]:
+    def scrapear(self) -> List[ProductoScrapeado]:
         ...
 
     def _parse_precio(self, texto: str) -> float:
-        texto = (
-            texto.replace("$", "")
-            .replace("UYU", "")
-            .replace("U$S", "")
-            .replace(".", "")
-            .replace(",", ".")
-            .strip()
-        )
-        return float(texto)
+        """Toma el primer importe del texto en formato uruguayo: '$ 1.234,56' -> 1234.56."""
+        m = _RE_IMPORTE.search(texto or "")
+        if not m:
+            raise ValueError(f"Precio no reconocido: {texto!r}")
+        return float(m.group(0).replace(".", "").replace(",", "."))

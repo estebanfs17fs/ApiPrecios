@@ -19,6 +19,15 @@ class Settings(BaseSettings):
     log_file: str = ""
     cache_ttl_hours: int = 6
 
+    # Navegador (Disco, Devoto): scroll infinito y lazy loading
+    chromium_path: str = ""
+    browser_headless: bool = True
+    scroll_max_pasos: int = 400
+    # cuántas vueltas seguidas sin productos nuevos antes de dar la categoría por terminada
+    scroll_paciencia: int = 5
+    # espera máxima (ms) a que aparezcan productos nuevos después de cada scroll
+    scroll_espera_ms: int = 4000
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

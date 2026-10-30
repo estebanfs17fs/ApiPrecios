@@ -1,22 +1,24 @@
 # Precios UY — Documentación
 
-> Consulta de precios de supermercados de Uruguay.
+> Precios de supermercados de Uruguay: scraping, API REST y una web para armar la lista de compras y ver dónde conviene comprarla.
 
 ---
 
 ## 1. Descripción
 
-Precios UY es un scraper y API REST que recolecta precios de productos de supermercados uruguayos y los expone vía CLI y API REST.
+Precios UY recolecta precios de supermercados uruguayos, los guarda en una base de datos con su historial, reconoce el mismo producto en distintos supermercados y permite comparar una lista de compras completa.
 
-### Supermercados soportados
+### Supermercados
 
-| Supermercado | Estado | Productos aprox. | Método |
-|---|---|---|---|
-| **Ta-Ta** | ✅ Funcional | ~236 | API VTEX (cloudscraper) |
-| **Disco** | ✅ Funcional | ~100 | HTML scraping |
-| **Devoto** | ✅ Funcional | ~100 | HTML scraping |
-| **Tienda Inglesa** | ✅ Funcional | ~38 | HTML + cloudscraper (Cloudflare) |
-| **Macromercado** | ❌ Sin tienda online | 0 | Catálogo B2B sin precios |
+| Supermercado | Método | Notas |
+|---|---|---|
+| **Ta-Ta** | API VTEX | Trae EAN (código de barras) |
+| **El Dorado** | API VTEX | Trae EAN |
+| **Disco** | Navegador (Playwright) | Scroll infinito y lazy loading |
+| **Devoto** | Navegador (Playwright) | Igual que Disco |
+| **Tienda Inglesa** | HTML paginado + cloudscraper | Recorre todas las páginas |
+| **Frog**, **Kinko** | HTML | Solo la portada; falta un scraper completo |
+| **Macromercado** | — | Sin tienda online |
 
 ---
 
@@ -24,280 +26,165 @@ Precios UY es un scraper y API REST que recolecta precios de productos de superm
 
 ```
 precios_uy/
-├── api/              → FastAPI + rutas REST
-├── scrapers/         → Scrapers individuales por supermercado
-│   ├── base.py       → Clase abstracta ScraperBase
-│   ├── tata.py       → API VTEX
-│   ├── disco.py      → HTML (Blazor)
-│   ├── devoto.py     → HTML (Blazor)
-│   ├── tienda_inglesa.py → HTML (GeneXus)
-│   └── macromercado.py   → Sin tienda
-├── models.py         → Modelo SQLAlchemy (Producto)
-├── database.py       → Operaciones de base de datos
-├── config.py         → Configuración (pydantic-settings)
-├── cli.py            → Interfaz de línea de comandos
-└── scheduler.py      → Scraping automático programado
+├── api/              → FastAPI: rutas REST y servidor (también sirve la web)
+├── web/              → Frontend (HTML + JS, sin build): buscar, lista, comparar
+├── scrapers/
+│   ├── base.py         → ScraperBase (cloudscraper, parseo de precios)
+│   ├── vtex_base.py    → Base para tiendas VTEX (Ta-Ta, El Dorado)
+│   ├── browser_base.py → Base con Playwright: scroll infinito + lazy loading
+│   └── ...             → un archivo por supermercado
+├── normalizacion.py  → Nombres y medidas normalizados para comparar productos
+├── models.py         → Producto, HistorialPrecio, ProductoScrapeado
+├── database.py       → Guardado, búsqueda, agrupación y comparación de listas
+├── scheduler.py      → Scraping (manual o periódico)
+├── config.py         → Configuración (pydantic-settings / .env)
+└── cli.py            → Línea de comandos
 ```
 
 ---
 
 ## 3. Instalación
 
-Ver [`INSTALL.md`](./INSTALL.md) para instrucciones detalladas.
-
-Resumen:
+Ver [`INSTALL.md`](./INSTALL.md). Resumen:
 
 ```bash
-git clone <repo>
-cd precios_uy
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv venv && source venv/bin/activate
 pip install -e .
+python -m playwright install chromium   # necesario para Disco y Devoto
 cp .env.example .env
 ```
 
 ---
 
-## 4. Uso CLI
+## 4. Uso
 
-### `precios-uy scrapear`
-
-Ejecuta scraping de todos los supermercados una vez.
+### Web
 
 ```bash
-precios-uy scrapear
-# Info: Ta-Ta: 236 productos guardados
-# Info: Disco: 100 productos guardados
-# Info: Devoto: 100 productos guardados
-# Info: Tienda Inglesa: 38 productos guardados
+python run_api.py
 ```
 
-### `precios-uy listar`
+Abrir `http://localhost:8000/`. Desde ahí se buscan productos (agrupados por supermercado), se agregan a la lista con cantidades, se eligen los supermercados a considerar y se compara. La lista queda guardada en el navegador.
 
-Lista los últimos precios registrados.
+Si la base está vacía, la web ofrece un botón para traer precios.
 
-```bash
-precios-uy listar
-precios-uy listar --supermercado Disco
-precios-uy listar --categoria "Almacén"
-precios-uy listar --limite 50
-precios-uy listar -s "Tienda Inglesa" -l 5
-```
-
-### `precios-uy buscar <término>`
-
-Busca productos por nombre.
+### CLI
 
 ```bash
-precios-uy buscar arroz
+precios-uy scrapear                    # todos los supermercados
+precios-uy scrapear --force -s disco   # solo Disco, aunque los datos estén frescos
+precios-uy listar -s Disco -l 20
 precios-uy buscar "dulce de leche"
-precios-uy buscar leche --limite 5
-```
-
-### `precios-uy supermercados`
-
-Lista supermercados con datos.
-
-```bash
+precios-uy comparar "arroz 1 kg"       # el mismo producto en cada supermercado
 precios-uy supermercados
-```
-
-### `precios-uy schedule`
-
-Inicia scraping automático cada N horas.
-
-```bash
-precios-uy schedule
-```
-
-### `python -m precios_uy`
-
-Alternativa si `precios-uy` no está en PATH:
-
-```bash
-python3 -m precios_uy scrapear
-python3 -m precios_uy listar
+precios-uy schedule                    # scraping automático cada SCRAP_INTERVAL_HOURS
 ```
 
 ---
 
 ## 5. API REST
 
-Documentación interactiva:
-- Swagger: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
+Documentación interactiva en `http://localhost:8000/docs`.
 
-### `GET /api/productos`
+| Método y ruta | Qué hace |
+|---|---|
+| `GET /api/productos` | Productos con su precio actual (`supermercado`, `categoria`, `limite`) |
+| `GET /api/productos/buscar?q=` | Búsqueda sin tildes, en cualquier orden; entiende medidas (`azucar 1 kg`) |
+| `GET /api/productos/comparar?q=` | Busca y agrupa el mismo producto entre supermercados |
+| `GET /api/productos/{id}` | Detalle e historial de precios |
+| `POST /api/lista/comparar` | Compara una lista de compras (ver abajo) |
+| `GET /api/supermercados` | Supermercados con datos |
+| `GET /api/categorias` | Categorías |
+| `POST /api/scrapear` | Lanza el scraping en segundo plano (`force`, `supermercado`) |
+| `GET /api/scrapear` | Estado del scraping en curso |
 
-Lista últimos precios. Parámetros: `supermercado`, `categoria`, `limite` (1-500, default 50).
-
-```bash
-curl "http://localhost:8000/api/productos?supermercado=Disco&limite=3"
-```
-
-### `GET /api/productos/buscar`
-
-Busca por nombre. Parámetros: `q` (requerido), `limite` (1-200, default 20).
-
-```bash
-curl "http://localhost:8000/api/productos/buscar?q=arroz"
-```
-
-### `GET /api/supermercados`
+### Comparar una lista
 
 ```bash
-curl http://localhost:8000/api/supermercados
+curl -X POST http://localhost:8000/api/lista/comparar \
+  -H 'Content-Type: application/json' \
+  -d '{"items": [{"producto_id": 12, "cantidad": 2}, {"texto": "leche 1 l"}],
+       "supermercados": ["Disco", "Ta-Ta"]}'
 ```
 
-### `GET /api/categorias`
+Cada item es un `producto_id` (se busca ese producto o su equivalente en cada supermercado) o un `texto` (se toma el más barato que coincida). La respuesta trae:
 
-```bash
-curl "http://localhost:8000/api/categorias?supermercado=Disco"
-```
-
-### `POST /api/scrapear`
-
-```bash
-curl -X POST http://localhost:8000/api/scrapear
-```
+- `supermercados`: total, encontrados, faltantes y detalle por supermercado, ordenados de mejor a peor.
+- `recomendado`: el supermercado más barato que tiene toda la lista.
+- `combinacion_optima`: comprando cada producto donde está más barato.
 
 ---
 
-## 6. Base de Datos
-
-### Diagrama
+## 6. Base de datos
 
 ```
-┌─────────────────────────────────────┐
-│           productos                  │
-├─────────────────────────────────────┤
-│ id              INTEGER (PK, AI)    │
-│ supermercado    VARCHAR(50)  (idx)  │
-│ nombre          VARCHAR(300)        │
-│ precio          FLOAT               │
-│ precio_anterior FLOAT (nullable)    │
-│ categoria       VARCHAR(100)        │
-│ marca           VARCHAR(100)        │
-│ url_producto    VARCHAR(500)        │
-│ url_imagen      VARCHAR(500)        │
-│ fecha_scraping  DATETIME     (idx)  │
-└─────────────────────────────────────┘
+productos                               precios (historial)
+─────────────────────────────           ───────────────────────
+id                PK                    id           PK
+supermercado      (idx)                 producto_id  FK → productos.id
+identificador     sku, url o nombre     precio
+nombre                                  precio_anterior
+nombre_normalizado (idx)                fecha        (idx)
+medida            "1000g", "1500ml"
+ean               (idx)
+precio            precio actual
+precio_anterior   precio de lista si hay descuento
+categoria, marca, url_producto, url_imagen
+creado, actualizado
+UNIQUE(supermercado, identificador)
 ```
 
-### Tecnología
+- Cada scrapeo actualiza el producto existente; solo se agrega una fila a `precios` si el precio cambió.
+- Si se abre una base del esquema anterior (una fila por scrapeo), se migra sola al arrancar.
+- SQLite por defecto; cualquier motor de SQLAlchemy vía `DATABASE_URL`.
 
-- **Motor:** SQLite (por defecto `precios_uy.db`)
-- **ORM:** SQLAlchemy 2.0
-- Configurable vía `DATABASE_URL` en `.env`
-- Se puede cambiar a PostgreSQL/MySQL cambiando la URL
+### Cómo se reconoce el mismo producto
 
-### Operaciones
-
-| Función | Descripción |
-|---|---|
-| `guardar_productos(lista)` | Inserta productos, retorna cantidad |
-| `obtener_ultimos_precios(filtros)` | Último precio por producto |
-| `buscar_productos(término)` | Búsqueda ILIKE por nombre |
-| `obtener_supermercados()` | Lista de supermercados |
-| `obtener_categorias(supermercado)` | Lista de categorías |
+1. Si los dos tienen EAN, se comparan por EAN.
+2. Si no, se normaliza el nombre (sin tildes, mayúsculas, palabras vacías ni orden) y la medida (`1 Kg` = `1000 grs`). Con medidas distintas son productos distintos; si no, se exige al menos 60 % de palabras en común.
 
 ---
 
-## 7. Scrapers
+## 7. Scraping con scroll infinito (Disco, Devoto)
 
-### ScraperBase
+`BrowserScraperBase` abre cada categoría con Chromium y:
 
-```python
-class ScraperBase(ABC):
-    supermercado: str
-    def scrapear() -> List[Producto]
-    def _get_soup(url) -> BeautifulSoup
-    def _parse_precio(texto) -> float
-```
+1. Baja de a una pantalla leyendo los productos en cada paso, así todos entran en pantalla y cargan precio e imagen. Lo leído se acumula aunque el sitio lo saque del DOM después.
+2. Al llegar abajo espera a que aparezcan productos nuevos (hasta `SCROLL_ESPERA_MS`), y hace clic en "Ver más" si hay botón.
+3. Termina cuando pasan `SCROLL_PACIENCIA` vueltas sin productos nuevos.
+4. Escucha las respuestas JSON del sitio: si traen productos estilo VTEX, también se usan (y aportan EAN).
+5. Si la página dice "N productos" y se obtuvieron menos, lo avisa en el log.
+6. Descubre las categorías desde el menú del sitio, además de la lista fija.
 
-Usa `cloudscraper` para bypass de Cloudflare.
+Los selectores CSS están como atributos de clase (`SELECTOR_ITEM`, `SELECTOR_PRECIO`, ...) para ajustarlos si el sitio cambia.
 
-### Parsing de precios
+### Configuración
 
-Formato uruguayo: `.` = miles, `,` = decimal.
-
-| Entrada | Salida |
-|---|---|
-| `$ 100` | 100.0 |
-| `$ 99,99` | 99.99 |
-| `$ 1.234` | 1234.0 |
-| `$ 1.234,56` | 1234.56 |
-| `UYU 500` | 500.0 |
-
-### Por supermercado
-
-| Supermercado | URL base | Método |
+| Variable | Default | Uso |
 |---|---|---|
-| **Ta-Ta** | `tatauy.vtexassets.com` | API VTEX |
-| **Disco** | `www.disco.com.uy` | HTML (`div.product-item`) |
-| **Devoto** | `www.devoto.com.uy` | HTML (igual que Disco) |
-| **Tienda Inglesa** | `www.tiendainglesa.com.uy` | HTML (`div.card-product-container`) |
-| **Macromercado** | — | Sin tienda online |
+| `CHROMIUM_PATH` | vacío | Ruta a un Chromium propio |
+| `BROWSER_HEADLESS` | `true` | `false` para ver el navegador mientras scrapea |
+| `SCROLL_MAX_PASOS` | 400 | Tope de vueltas por categoría |
+| `SCROLL_PACIENCIA` | 5 | Vueltas sin novedades antes de cortar |
+| `SCROLL_ESPERA_MS` | 4000 | Espera máxima por vuelta |
 
 ---
 
 ## 8. Tests
 
 ```bash
-# Todos
-python3 -m pytest tests/ -v
-
-# Con cobertura
-python3 -m pytest tests/ --cov=precios_uy -v
-
-# Tests específicos
-python3 -m pytest tests/test_api.py -v
+python -m pytest tests/ -v
+python -m pytest tests/ -m "not navegador"   # sin las pruebas que abren Chromium
 ```
 
-### Estructura (67 tests)
-
-| Archivo | Tests | Qué prueba |
-|---|---|---|
-| `test_models.py` | 7 | Producto, to_dict, persistencia |
-| `test_database.py` | 16 | CRUD, filtros, búsqueda |
-| `test_api.py` | 15 | Endpoints REST |
-| `test_cli.py` | 8 | Comandos CLI |
-| `test_scrapers.py` | 13 | parse_precio, registro scrapers |
-
-### Fixtures
-
-| Fixture | Descripción |
-|---|---|
-| `_test_database` | BD temporal aislada por test |
-| `session` | Sesión SQLAlchemy |
-| `client` | TestClient FastAPI |
-| `runner` | CliRunner Click |
-| `productos_db` | 4 productos de prueba |
+`tests/test_browser_scraper.py` levanta un sitio local que imita a Disco/Devoto (scroll infinito, precios que aparecen al entrar en pantalla, lista virtualizada y botón "Ver más") y verifica que se obtengan todos los productos.
 
 ---
 
-## 9. Sugerencias de mejora
+## 9. Pendientes
 
-### Corto plazo
-
-- [ ] Paginación completa en Disco/Devoto (más de 20 productos por categoría)
-- [ ] Sesión VTEX para Ta-Ta (catálogo completo con autenticación)
-- [ ] Caché de resultados
-- [ ] Logging a archivo
-- [ ] Lifespan events en FastAPI (reemplazar `on_event` deprecado)
-
-### Mediano plazo
-
-- [ ] Historial de precios (tracking semanal)
-- [ ] Alertas de cambios de precio
-- [ ] Endpoint de comparación entre supermercados
-- [ ] Autenticación y rate limiting en API
-
-### Largo plazo
-
-- [ ] Docker-compose para despliegue
-- [ ] CI/CD con GitHub Actions
-- [ ] Frontend web (React/Vue)
-- [ ] PostgreSQL para múltiples instancias
-- [ ] Scrapers con Playwright para sitios con JS pesado
-- [ ] Gráficos de evolución de precios
+- [ ] Probar los scrapers contra los sitios reales y ajustar selectores si cambiaron.
+- [ ] Scrapers completos para Frog y Kinko.
+- [ ] Gráfico de evolución de precios en la web (el historial ya está en la API).
+- [ ] Alertas de cambios de precio.
+- [ ] Autenticación y rate limiting en la API.

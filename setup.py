@@ -2,9 +2,10 @@ from setuptools import find_packages, setup
 
 setup(
     name="precios_uy",
-    version="1.0.0",
+    version="2.0.0",
     packages=find_packages(),
     include_package_data=True,
+    package_data={"precios_uy": ["web/*"]},
     install_requires=[
         "fastapi>=0.100.0",
         "uvicorn[standard]>=0.20.0",
@@ -17,6 +18,7 @@ setup(
         "pydantic-settings>=2.0.0",
         "schedule>=1.2.0",
         "cloudscraper>=1.2.0",
+        "playwright>=1.40.0",
     ],
     entry_points={
         "console_scripts": [

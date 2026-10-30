@@ -11,3 +11,5 @@ select = ["E", "F", "W", "I"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["navegador: pruebas que abren Chromium con Playwright (más lentas)"]
+asyncio_default_fixture_loop_scope = "function"

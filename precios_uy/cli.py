@@ -6,6 +6,7 @@ from precios_uy.cache import is_cache_fresh
 from precios_uy.config import setup_logging
 from precios_uy.database import (
     buscar_productos,
+    comparar_productos,
     init,
     obtener_supermercados,
     obtener_ultimos_precios,
@@ -23,12 +24,18 @@ def cli():
 
 
 @cli.command()
-def scrapear():
+@click.option("--force", "-f", is_flag=True, help="Scrapear aunque los datos estén frescos")
+@click.option(
+    "--supermercado", "-s", multiple=True, help="Solo este supermercado (p. ej. disco)"
+)
+def scrapear(force, supermercado):
     """Ejecuta scraping de todos los supermercados una vez."""
-    if is_cache_fresh():
+    if is_cache_fresh() and not force:
         click.echo("Datos aún frescos. Usá --force para rescrapear o ajustá CACHE_TTL_HOURS.")
         return
-    ejecutar_scraping()
+    resultados = ejecutar_scraping(list(supermercado) or None)
+    for nombre, resultado in resultados.items():
+        click.echo(f"{nombre:15s} {resultado}")
 
 
 @cli.command()
@@ -62,6 +69,20 @@ def buscar(termino, limite):
         click.echo(
             f"[{p.supermercado:15s}] ${p.precio:>8.2f} — {p.nombre[:60]}"
         )
+
+
+@cli.command()
+@click.argument("termino")
+def comparar(termino):
+    """Muestra el mismo producto en los distintos supermercados."""
+    grupos = comparar_productos(termino)
+    if not grupos:
+        click.echo(f"No se encontraron productos para '{termino}'.")
+        return
+    for g in grupos[:15]:
+        click.echo(f"\n{g['nombre'][:70]}")
+        for o in g["ofertas"]:
+            click.echo(f"  [{o['supermercado']:15s}] ${o['precio']:>8.2f}  {o['nombre'][:50]}")
 
 
 @cli.command()

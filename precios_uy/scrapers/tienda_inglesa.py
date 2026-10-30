@@ -1,7 +1,7 @@
 import logging
 from typing import List, Set
 
-from precios_uy.models import Producto
+from precios_uy.models import ProductoScrapeado
 from precios_uy.scrapers.base import ScraperBase
 
 logger = logging.getLogger(__name__)
@@ -11,7 +11,7 @@ class TiendaInglesaScraper(ScraperBase):
     supermercado = "Tienda Inglesa"
     BASE = "https://www.tiendainglesa.com.uy"
 
-    def _extraer_productos(self, soup) -> List[Producto]:
+    def _extraer_productos(self, soup) -> List[ProductoScrapeado]:
         result = []
         items = soup.select("div.card-product-container")
         for item in items:
@@ -46,7 +46,7 @@ class TiendaInglesaScraper(ScraperBase):
                     else None
                 )
 
-                producto = Producto(
+                producto = ProductoScrapeado(
                     supermercado=self.supermercado,
                     nombre=nombre,
                     precio=precio,
@@ -58,40 +58,41 @@ class TiendaInglesaScraper(ScraperBase):
                 continue
         return result
 
-    def _scrape_categoria_paginada(
-        self, name: str, cat_id: int, max_pages: int = 5
-    ) -> List[Producto]:
+    MAX_PAGINAS = 200
+
+    def _paginar(self, url_pagina) -> List[ProductoScrapeado]:
+        """
+        Recorre páginas hasta que una venga vacía o repita productos ya vistos
+        (algunos sitios devuelven la última página una y otra vez).
+        """
         result = []
-        for page in range(1, max_pages + 1):
-            url = f"{self.BASE}/supermercado/{name}/{cat_id}?0,{cat_id},*,0,0,0,0,0,0,0,{page}"
+        vistas: Set[str] = set()
+        for page in range(1, self.MAX_PAGINAS + 1):
             try:
-                soup = self._get_soup(url)
-                items = self._extraer_productos(soup)
-                if not items:
-                    break
-                result.extend(items)
-            except Exception:
+                items = self._extraer_productos(self._get_soup(url_pagina(page)))
+            except Exception as e:
+                logger.debug("%s: error en página %d: %s", self.supermercado, page, e)
                 break
+            nuevos = [p for p in items if (p.url_producto or p.nombre) not in vistas]
+            if not nuevos:
+                break
+            vistas.update(p.url_producto or p.nombre for p in nuevos)
+            result.extend(nuevos)
         return result
 
-    def _scrape_lista_api(self, name: str, list_id: int, max_pages: int = 5) -> List[Producto]:
-        result = []
-        for page in range(1, max_pages + 1):
-            url = (
-                f"{self.BASE}/supermercado/listas/{name}/busqueda?"
-                f"{list_id},0,*%3A*%26,0,0,0,,,false,,,,{page}"
-            )
-            try:
-                soup = self._get_soup(url)
-                items = self._extraer_productos(soup)
-                if not items:
-                    break
-                result.extend(items)
-            except Exception:
-                break
-        return result
+    def _scrape_categoria_paginada(self, name: str, cat_id: int) -> List[ProductoScrapeado]:
+        return self._paginar(
+            lambda page: f"{self.BASE}/supermercado/{name}/{cat_id}"
+            f"?0,{cat_id},*,0,0,0,0,0,0,0,{page}"
+        )
 
-    def scrapear(self, max_pages: int = 5) -> List[Producto]:
+    def _scrape_lista_api(self, name: str, list_id: int) -> List[ProductoScrapeado]:
+        return self._paginar(
+            lambda page: f"{self.BASE}/supermercado/listas/{name}/busqueda?"
+            f"{list_id},0,*%3A*%26,0,0,0,,,false,,,,{page}"
+        )
+
+    def scrapear(self) -> List[ProductoScrapeado]:
         productos = []
         vistas_urls: Set[str] = set()
 
@@ -112,7 +113,7 @@ class TiendaInglesaScraper(ScraperBase):
         ]
 
         for cat_name, cat_id in categorias:
-            prods = self._scrape_categoria_paginada(cat_name, cat_id, max_pages=max_pages)
+            prods = self._scrape_categoria_paginada(cat_name, cat_id)
             for p in prods:
                 if p.url_producto and p.url_producto in vistas_urls:
                     continue
@@ -130,7 +131,7 @@ class TiendaInglesaScraper(ScraperBase):
         ]
 
         for name, list_id in listas:
-            prods = self._scrape_lista_api(name, list_id, max_pages=max_pages)
+            prods = self._scrape_lista_api(name, list_id)
             for p in prods:
                 if p.url_producto and p.url_producto in vistas_urls:
                     continue
