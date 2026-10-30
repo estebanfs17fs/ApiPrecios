@@ -119,3 +119,27 @@ class TestGuardadoParcial:
         s._entregar_parcial([])
         assert len(lotes) == 1
         assert s.guardados_parciales == 1
+
+
+class TestVtexReintentos:
+    def test_reintenta_ante_500(self, monkeypatch):
+        monkeypatch.setattr("precios_uy.scrapers.vtex_base.time.sleep", lambda s: None)
+
+        class Resp:
+            def __init__(self, status):
+                self.status_code = status
+                self.headers = {"resources": "0-0/1"}
+
+            def raise_for_status(self):
+                if self.status_code >= 400:
+                    raise RuntimeError(self.status_code)
+
+            def json(self):
+                return [{"ok": True}]
+
+        respuestas = [Resp(500), Resp(500), Resp(200)]
+        s = TataScraper()
+        monkeypatch.setattr(s._scraper, "get", lambda *a, **k: respuestas.pop(0))
+        data, _ = s._get_json("http://x")
+        assert data == [{"ok": True}]
+        assert respuestas == []

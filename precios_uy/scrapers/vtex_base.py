@@ -1,5 +1,8 @@
 import logging
+import time
 from typing import List, Optional, Set
+
+import requests
 
 from precios_uy.config import settings
 from precios_uy.models import ProductoScrapeado
@@ -64,17 +67,30 @@ class VtexScraperBase(ScraperBase):
         if supermercado:
             self.supermercado = supermercado
 
+    REINTENTOS = 3
+
     def _get_json(self, url: str) -> tuple[list | dict, dict]:
-        resp = self._scraper.get(
-            url,
-            headers={
-                "User-Agent": settings.user_agent,
-                "Accept": "application/json",
-            },
-            timeout=settings.request_timeout,
-        )
-        resp.raise_for_status()
-        return resp.json(), resp.headers
+        # VTEX devuelve 500 de vez en cuando en páginas sueltas: se reintenta
+        for intento in range(1, self.REINTENTOS + 1):
+            try:
+                resp = self._scraper.get(
+                    url,
+                    headers={
+                        "User-Agent": settings.user_agent,
+                        "Accept": "application/json",
+                    },
+                    timeout=settings.request_timeout,
+                )
+                if resp.status_code >= 500 and intento < self.REINTENTOS:
+                    time.sleep(2 * intento)
+                    continue
+                resp.raise_for_status()
+                return resp.json(), resp.headers
+            except (requests.ConnectionError, requests.Timeout):
+                if intento == self.REINTENTOS:
+                    raise
+                time.sleep(2 * intento)
+        raise RuntimeError("sin respuesta")  # no se llega
 
     # VTEX no devuelve resultados más allá de _from=2500 en una misma búsqueda
     MAX_RESULTADOS_BUSQUEDA = 2500

@@ -404,6 +404,45 @@ class BrowserScraperBase(ScraperBase):
         )
         return list(resultado.values()), total, subcategorias
 
+    def _categorias_desde_sitemap(self) -> List[str]:
+        """
+        Lee las categorías del sitemap del sitio y devuelve solo las hojas (las que no
+        tienen subcategorías). En Disco son ~700 rutas /products/... y las listas
+        chicas se pueden recorrer enteras con scroll.
+        """
+        rutas: List[str] = []
+        pendientes = [f"{self.BASE_URL}/sitemap.xml"]
+        vistos = set()
+        while pendientes and len(vistos) < 50:
+            url = pendientes.pop(0)
+            if url in vistos:
+                continue
+            vistos.add(url)
+            try:
+                resp = self._scraper.get(
+                    url,
+                    headers={"User-Agent": settings.user_agent},
+                    timeout=settings.request_timeout,
+                )
+                resp.raise_for_status()
+            except Exception as e:
+                logger.debug("%s: no se pudo leer %s: %s", self.supermercado, url, e)
+                continue
+            for loc in re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", resp.text):
+                if "sitemap" in loc and loc.endswith(".xml"):
+                    pendientes.append(loc)
+                elif self.RUTA_CATEGORIA in loc:
+                    ruta = urlparse(loc).path.split(self.RUTA_CATEGORIA, 1)[-1].strip("/")
+                    if ruta and ruta not in rutas:
+                        rutas.append(ruta)
+        hojas = [r for r in rutas if not any(o.startswith(r + "/") for o in rutas)]
+        if hojas:
+            logger.info(
+                "%s: %d categorías en el sitemap, %d hojas",
+                self.supermercado, len(rutas), len(hojas),
+            )
+        return hojas
+
     async def _descubrir_categorias(self, context) -> List[str]:
         """Lee los links a categorías del menú del sitio."""
         page = await context.new_page()
@@ -449,11 +488,14 @@ class BrowserScraperBase(ScraperBase):
             )
             try:
                 if categorias is None:
-                    descubiertas = await self._descubrir_categorias(context)
-                    # las descubiertas primero; las fijas por si el menú no carga
-                    categorias = descubiertas + [
-                        c for c in self.categorias if c not in descubiertas
-                    ]
+                    # 1) hojas del sitemap: listas chicas que el scroll recorre enteras
+                    categorias = self._categorias_desde_sitemap()
+                    if not categorias:
+                        # 2) menú del sitio, y la lista fija por si el menú no carga
+                        descubiertas = await self._descubrir_categorias(context)
+                        categorias = descubiertas + [
+                            c for c in self.categorias if c not in descubiertas
+                        ]
                 pendientes = list(categorias)
                 hechas = set()
                 while pendientes:

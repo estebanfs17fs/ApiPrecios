@@ -147,6 +147,19 @@ class _Handler(BaseHTTPRequestHandler):
         pagina = int(parse_qs(url.query).get("pagina", ["0"])[0])
         if url.path == "/":
             self._responder(HOME, "text/html; charset=utf-8")
+        elif url.path == "/sitemap.xml" and self.server.con_sitemap:
+            base = f"http://127.0.0.1:{self.server.server_address[1]}"
+            self._responder(
+                f"<sitemapindex><sitemap><loc>{base}/sitemap-1.xml</loc></sitemap></sitemapindex>",
+                "application/xml",
+            )
+        elif url.path == "/sitemap-1.xml" and self.server.con_sitemap:
+            base = f"http://127.0.0.1:{self.server.server_address[1]}"
+            locs = "".join(
+                f"<url><loc>{base}/products/category/{c}</loc></url>"
+                for c in ["almacen", "almacen/10", "bebidas/11"]
+            )
+            self._responder(f"<urlset>{locs}</urlset>", "application/xml")
         elif url.path.startswith("/products/category/almacen"):
             self._responder(ALMACEN % {"total": TOTAL_ALMACEN}, "text/html; charset=utf-8")
         elif url.path.startswith("/products/category/bebidas"):
@@ -163,8 +176,9 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 @pytest.fixture
-def sitio():
+def sitio(request):
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    server.con_sitemap = getattr(request, "param", False)
     hilo = threading.Thread(target=server.serve_forever, daemon=True)
     hilo.start()
     yield f"http://127.0.0.1:{server.server_address[1]}"
@@ -231,7 +245,8 @@ def test_boton_ver_mas_y_json_vtex(sitio, ajustes_navegador):
 
 
 @pytest.mark.navegador
-def test_descubre_categorias_del_menu(sitio, ajustes_navegador):
+@pytest.mark.parametrize("sitio", [False, True], ids=["menu", "sitemap"], indirect=True)
+def test_descubre_categorias(sitio, ajustes_navegador):
     try:
         productos = ScraperDePrueba(sitio).scrapear()
     except Exception as e:
