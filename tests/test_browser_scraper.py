@@ -157,7 +157,8 @@ class _Handler(BaseHTTPRequestHandler):
             base = f"http://127.0.0.1:{self.server.server_address[1]}"
             locs = "".join(
                 f"<url><loc>{base}/products/category/{c}</loc></url>"
-                for c in ["almacen", "almacen/10", "bebidas/11"]
+                # jerarquía por id como en Disco: almacen/10 -> almacen-granos/1010
+                for c in ["almacen/10", "almacen-granos/1010", "no-usar/1011", "bebidas/11"]
             )
             self._responder(f"<urlset>{locs}</urlset>", "application/xml")
         elif url.path.startswith("/products/category/almacen"):

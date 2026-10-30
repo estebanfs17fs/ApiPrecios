@@ -404,6 +404,25 @@ class BrowserScraperBase(ScraperBase):
         )
         return list(resultado.values()), total, subcategorias
 
+    @staticmethod
+    def _es_hija(ruta: str, padre: str) -> bool:
+        """
+        True si `ruta` es subcategoría de `padre`, ya sea por el path
+        (almacen/arroz bajo almacen) o por el id final, como en Disco, donde
+        almacen/10 -> canasta-familiar/1010 -> arroz/101013.
+        """
+        if ruta == padre:
+            return False
+        if ruta.startswith(padre + "/"):
+            return True
+        id_ruta, id_padre = ruta.rsplit("/", 1)[-1], padre.rsplit("/", 1)[-1]
+        return (
+            id_ruta.isdigit()
+            and id_padre.isdigit()
+            and len(id_ruta) > len(id_padre)
+            and id_ruta.startswith(id_padre)
+        )
+
     def _categorias_desde_sitemap(self) -> List[str]:
         """
         Lee las categorías del sitemap del sitio y devuelve solo las hojas (las que no
@@ -435,7 +454,8 @@ class BrowserScraperBase(ScraperBase):
                     ruta = urlparse(loc).path.split(self.RUTA_CATEGORIA, 1)[-1].strip("/")
                     if ruta and ruta not in rutas:
                         rutas.append(ruta)
-        hojas = [r for r in rutas if not any(o.startswith(r + "/") for o in rutas)]
+        rutas = [r for r in rutas if "no-usar" not in r]
+        hojas = [r for r in rutas if not any(self._es_hija(o, r) for o in rutas)]
         if hojas:
             logger.info(
                 "%s: %d categorías en el sitemap, %d hojas",

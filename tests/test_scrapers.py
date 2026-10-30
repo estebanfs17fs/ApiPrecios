@@ -143,3 +143,13 @@ class TestVtexReintentos:
         data, _ = s._get_json("http://x")
         assert data == [{"ok": True}]
         assert respuestas == []
+
+
+class TestJerarquiaCategorias:
+    def test_hija_por_id_o_por_path(self):
+        es_hija = DiscoScraper._es_hija
+        assert es_hija("canasta-familiar/1010", "almacen/10")
+        assert es_hija("arroz/101013", "canasta-familiar/1010")
+        assert es_hija("almacen/arroz", "almacen")
+        assert not es_hija("bebidas/11", "almacen/10")
+        assert not es_hija("almacen/10", "almacen/10")
