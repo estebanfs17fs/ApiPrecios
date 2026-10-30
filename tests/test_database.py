@@ -226,3 +226,16 @@ class TestMigracionEsquemaViejo:
         p = session.query(Producto).one()
         assert p.precio == 95.0
         assert [h.precio for h in p.historial] == [80.0, 95.0]
+
+
+class TestRelevancia:
+    def test_primero_lo_que_empieza_con_lo_buscado(self):
+        guardar_productos(
+            [
+                PS(supermercado="Ta-Ta", nombre="Galletas de Arroz 150 g", precio=60.0),
+                PS(supermercado="Ta-Ta", nombre="Condimento para Arroz 15 g", precio=50.0),
+                PS(supermercado="Ta-Ta", nombre="Arroz Saman 1 kg", precio=70.0),
+            ]
+        )
+        assert buscar_productos("arroz")[0].nombre == "Arroz Saman 1 kg"
+        assert comparar_productos("arroz")[0]["nombre"] == "Arroz Saman 1 kg"

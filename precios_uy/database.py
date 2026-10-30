@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from sqlalchemy import and_, func, inspect, or_, text
+from sqlalchemy import and_, case, func, inspect, literal, or_, text
 
 from precios_uy import models
 from precios_uy.models import HistorialPrecio, Producto, ProductoScrapeado, init_db
@@ -10,6 +10,7 @@ from precios_uy.normalizacion import (
     ean_valido,
     extraer_medida,
     nombre_normalizado,
+    normalizar_texto,
     similitud,
     tokens,
 )
@@ -135,9 +136,19 @@ def buscar_productos(
         q = session.query(Producto).filter(_filtro_texto(termino))
         if supermercados:
             q = q.filter(Producto.supermercado.in_(supermercados))
-        return q.order_by(Producto.precio).limit(limite).all()
+        return q.order_by(_relevancia(termino), Producto.precio).limit(limite).all()
     finally:
         session.close()
+
+
+def _relevancia(termino: str):
+    """0 si el nombre empieza con la primera palabra buscada ("arroz" -> "Arroz Saman"),
+    1 si no ("Galletas de arroz"), para que lo buscado aparezca antes que lo que solo
+    lo menciona."""
+    palabras = termino.split()
+    if not palabras:
+        return literal(0)
+    return case((Producto.nombre.ilike(f"{palabras[0]}%"), 0), else_=1)
 
 
 def obtener_producto(producto_id: int) -> Optional[Producto]:
@@ -242,7 +253,13 @@ def comparar_productos(termino: str, limite: int = 300) -> List[dict]:
                 "ofertas": [p.to_dict() for p in ofertas],
             }
         )
-    grupos.sort(key=lambda g: (-len(g["ofertas"]), g["precio_min"]))
+    primera = normalizar_texto(termino).split()[:1]
+
+    def relevancia(g):
+        empieza = bool(primera) and normalizar_texto(g["nombre"]).startswith(primera[0])
+        return (0 if empieza else 1, -len(g["ofertas"]), g["precio_min"])
+
+    grupos.sort(key=relevancia)
     return grupos
 
 
