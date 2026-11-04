@@ -42,6 +42,15 @@ Esto instala:
 - `click` — CLI
 - `apscheduler` — Scraping automático
 - `pydantic-settings` — Configuración
+- `playwright` — Navegador para sitios con scroll infinito (Disco, Devoto)
+
+Después, descargar el Chromium que usa Playwright:
+
+```bash
+python -m playwright install chromium
+# En Linux, si faltan librerías del sistema:
+# python -m playwright install --with-deps chromium
+```
 
 ### 4. Configurar variables de entorno
 
@@ -110,6 +119,7 @@ python3 -m precios_uy scrapear
 ```bash
 python3 run_api.py
 # Servidor en http://0.0.0.0:8000
+# Web (lista de compras): http://localhost:8000/
 # Docs: http://localhost:8000/docs
 ```
 

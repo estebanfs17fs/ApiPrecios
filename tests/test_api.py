@@ -91,9 +91,78 @@ class TestListarCategorias:
 
 
 class TestScrapear:
-    def test_endpoint_existe(self, client, monkeypatch):
-        monkeypatch.setattr("precios_uy.api.routes.get_all_scrapers", lambda: [])
+    def test_lanza_en_segundo_plano(self, client, monkeypatch):
+        llamado = {}
+        monkeypatch.setattr(
+            "precios_uy.api.routes.ejecutar_scraping",
+            lambda sups=None: llamado.setdefault("sups", sups),
+        )
+        monkeypatch.setattr("precios_uy.api.routes.is_cache_fresh", lambda: False)
+        resp = client.post("/api/scrapear?supermercado=disco")
+        assert resp.status_code == 202
+        assert llamado["sups"] == ["disco"]
+
+    def test_no_scrapea_si_datos_frescos(self, client, monkeypatch):
+        monkeypatch.setattr("precios_uy.api.routes.is_cache_fresh", lambda: True)
         resp = client.post("/api/scrapear")
+        assert "frescos" in resp.json()["mensaje"]
+
+    def test_estado(self, client):
+        resp = client.get("/api/scrapear")
+        assert resp.status_code == 200
+        assert resp.json()["en_curso"] is False
+
+
+class TestCompararProductos:
+    def test_agrupa_mismo_producto(self, client, productos_db):
+        resp = client.get("/api/productos/comparar?q=arroz")
+        data = resp.json()
+        assert data["total"] == 1
+        grupo = data["grupos"][0]
+        assert [o["supermercado"] for o in grupo["ofertas"]] == ["Disco", "Tienda Inglesa"]
+        assert grupo["precio_min"] == 120.0
+        assert grupo["supermercado_mas_barato"] == "Disco"
+
+
+class TestDetalleProducto:
+    def test_detalle_con_historial(self, client, productos_db):
+        pid = client.get("/api/productos/buscar?q=leche").json()["productos"][0]["id"]
+        resp = client.get(f"/api/productos/{pid}")
+        assert resp.status_code == 200
+        assert resp.json()["historial"][0]["precio"] == 80.0
+
+    def test_no_existe(self, client):
+        assert client.get("/api/productos/9999").status_code == 404
+
+
+class TestCompararLista:
+    def test_compara_lista(self, client, productos_db):
+        arroz = client.get("/api/productos/buscar?q=arroz").json()["productos"][0]
+        resp = client.post(
+            "/api/lista/comparar",
+            json={
+                "items": [
+                    {"producto_id": arroz["id"], "cantidad": 2},
+                    {"texto": "leche", "cantidad": 1},
+                ]
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
-        assert "resultados" in data
+        assert data["recomendado"] == "Disco"
+        disco = next(s for s in data["supermercados"] if s["supermercado"] == "Disco")
+        assert disco["total"] == 2 * 120 + 80
+        ti = next(s for s in data["supermercados"] if s["supermercado"] == "Tienda Inglesa")
+        assert ti["faltantes"] == [1]
+        assert data["combinacion_optima"]["total"] == 320
+
+    def test_item_vacio_es_invalido(self, client):
+        resp = client.post("/api/lista/comparar", json={"items": [{"cantidad": 1}]})
+        assert resp.status_code == 422
+
+
+class TestFrontend:
+    def test_sirve_index(self, client):
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert "Lista de precios" in resp.text

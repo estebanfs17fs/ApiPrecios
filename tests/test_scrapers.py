@@ -95,3 +95,61 @@ class TestMacromercadoScraper:
     def test_devuelve_lista_vacia(self):
         scraper = MacromercadoScraper()
         assert scraper.scrapear() == []
+
+
+class TestVtexCanalVenta:
+    def test_tata_usa_canal_4(self):
+        url = TataScraper()._url_busqueda("fq=C:/1/", 0, 49)
+        assert "fq=C:/1/&sc=4&_from=0&_to=49" in url
+
+    def test_sin_canal(self):
+        url = ElDoradoScraper()._url_busqueda("", 0, 0)
+        assert "sc=" not in url
+        assert url.endswith("search?_from=0&_to=0")
+
+
+class TestGuardadoParcial:
+    def test_entrega_lotes(self):
+        from precios_uy.models import ProductoScrapeado
+
+        s = MacromercadoScraper()
+        lotes = []
+        s.guardar_parcial = lambda lote: lotes.append(lote) or len(lote)
+        s._entregar_parcial([ProductoScrapeado(supermercado="X", nombre="a", precio=1.0)])
+        s._entregar_parcial([])
+        assert len(lotes) == 1
+        assert s.guardados_parciales == 1
+
+
+class TestVtexReintentos:
+    def test_reintenta_ante_500(self, monkeypatch):
+        monkeypatch.setattr("precios_uy.scrapers.vtex_base.time.sleep", lambda s: None)
+
+        class Resp:
+            def __init__(self, status):
+                self.status_code = status
+                self.headers = {"resources": "0-0/1"}
+
+            def raise_for_status(self):
+                if self.status_code >= 400:
+                    raise RuntimeError(self.status_code)
+
+            def json(self):
+                return [{"ok": True}]
+
+        respuestas = [Resp(500), Resp(500), Resp(200)]
+        s = TataScraper()
+        monkeypatch.setattr(s._scraper, "get", lambda *a, **k: respuestas.pop(0))
+        data, _ = s._get_json("http://x")
+        assert data == [{"ok": True}]
+        assert respuestas == []
+
+
+class TestJerarquiaCategorias:
+    def test_hija_por_id_o_por_path(self):
+        es_hija = DiscoScraper._es_hija
+        assert es_hija("canasta-familiar/1010", "almacen/10")
+        assert es_hija("arroz/101013", "canasta-familiar/1010")
+        assert es_hija("almacen/arroz", "almacen")
+        assert not es_hija("bebidas/11", "almacen/10")
+        assert not es_hija("almacen/10", "almacen/10")

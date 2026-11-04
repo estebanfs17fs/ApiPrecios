@@ -1,7 +1,7 @@
 import logging
 from typing import List
 
-from precios_uy.models import Producto
+from precios_uy.models import ProductoScrapeado
 from precios_uy.scrapers.base import ScraperBase
 
 logger = logging.getLogger(__name__)
@@ -11,7 +11,7 @@ class KinkoScraper(ScraperBase):
     supermercado = "Kinko"
     BASE_URL = "https://www.kinko.com.uy"
 
-    def scrapear(self) -> List[Producto]:
+    def scrapear(self) -> List[ProductoScrapeado]:
         productos = []
         logger.info("Iniciando scraping de %s (%s)", self.supermercado, self.BASE_URL)
 
@@ -47,7 +47,7 @@ class KinkoScraper(ScraperBase):
                         if url_img and not url_img.startswith("http"):
                             url_img = self.BASE_URL + url_img
 
-                        producto = Producto(
+                        producto = ProductoScrapeado(
                             supermercado=self.supermercado,
                             nombre=nombre,
                             precio=precio,

@@ -8,3 +8,5 @@ venv/
 *.egg-info/
 .pytest_cache/
 *.log
+build/
+dist/

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lista de precios</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="barra">
+    <h1>Lista de precios</h1>
+    <span id="estado-datos" class="sutil"></span>
+  </header>
+
+  <main class="layout">
+    <section class="panel" aria-labelledby="t-buscar">
+      <h2 id="t-buscar">Buscar productos</h2>
+      <form id="form-buscar" class="buscador" role="search">
+        <input id="q" type="search" placeholder="Ej.: arroz 1 kg, leche, yerba" autocomplete="off" required>
+        <button type="submit">Buscar</button>
+      </form>
+      <div id="sin-datos" class="aviso" hidden>
+        <p>Todavía no hay precios cargados.</p>
+        <button id="btn-scrapear" type="button">Traer precios ahora</button>
+        <p class="sutil">Tarda varios minutos. También podés correr <code>precios-uy scrapear</code>.</p>
+      </div>
+      <div id="resultados" aria-live="polite"></div>
+    </section>
+
+    <section class="panel" aria-labelledby="t-lista">
+      <h2 id="t-lista">Mi lista</h2>
+      <ul id="lista" class="lista"></ul>
+      <p id="lista-vacia" class="sutil">Agregá productos desde la búsqueda.</p>
+      <fieldset id="filtro-supers" class="supers">
+        <legend>Supermercados a comparar</legend>
+        <div id="supers-opciones"></div>
+      </fieldset>
+      <div class="acciones">
+        <button id="btn-comparar" type="button" disabled>Comparar lista</button>
+        <button id="btn-vaciar" type="button" class="secundario" disabled>Vaciar</button>
+      </div>
+      <div id="comparacion" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <template id="tpl-grupo">
+    <article class="grupo">
+      <img class="miniatura" alt="" loading="lazy">
+      <div class="grupo-cuerpo">
+        <h3 class="grupo-nombre"></h3>
+        <ul class="ofertas"></ul>
+      </div>
+      <button type="button" class="agregar">Agregar</button>
+    </article>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>

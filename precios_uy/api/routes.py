@@ -1,18 +1,21 @@
 import logging
-from typing import Optional
+from typing import List, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
+from pydantic import BaseModel, Field, model_validator
 
-from precios_uy.cache import is_cache_fresh, mark_scrape
+from precios_uy.cache import is_cache_fresh
 from precios_uy.database import (
     buscar_productos,
+    comparar_lista,
     comparar_productos,
-    guardar_productos,
     obtener_categorias,
+    obtener_historial,
+    obtener_producto,
     obtener_supermercados,
     obtener_ultimos_precios,
 )
-from precios_uy.scrapers import get_all_scrapers
+from precios_uy.scheduler import ejecutar_scraping, estado_scraping
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
@@ -47,12 +50,52 @@ def buscar(
 def comparar(
     q: str = Query(..., min_length=1, description="Nombre del producto a comparar"),
 ):
-    resultados = comparar_productos(q)
+    """Busca y agrupa el mismo producto en los distintos supermercados."""
+    grupos = comparar_productos(q)
     return {
         "producto": q,
-        "resultados": resultados,
-        "total": len(resultados),
+        "grupos": grupos,
+        "total": len(grupos),
     }
+
+
+@router.get("/productos/{producto_id}")
+def detalle_producto(producto_id: int):
+    producto = obtener_producto(producto_id)
+    if producto is None:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+    return {
+        **producto.to_dict(),
+        "historial": [h.to_dict() for h in obtener_historial(producto_id)],
+    }
+
+
+class ItemLista(BaseModel):
+    producto_id: Optional[int] = Field(None, description="Producto elegido de la búsqueda")
+    texto: Optional[str] = Field(None, description="O un texto libre, p. ej. 'leche 1 l'")
+    cantidad: float = Field(1, gt=0)
+
+    @model_validator(mode="after")
+    def _producto_o_texto(self):
+        if not self.producto_id and not (self.texto and self.texto.strip()):
+            raise ValueError("Cada item necesita producto_id o texto")
+        return self
+
+
+class Lista(BaseModel):
+    items: List[ItemLista] = Field(..., min_length=1, max_length=200)
+    supermercados: Optional[List[str]] = Field(
+        None, description="Limitar la comparación a estos supermercados"
+    )
+
+
+@router.post("/lista/comparar")
+def comparar_lista_compras(lista: Lista):
+    """
+    Calcula cuánto sale la lista en cada supermercado, cuál conviene y cuál es
+    la combinación más barata comprando cada producto donde esté más barato.
+    """
+    return comparar_lista([i.model_dump() for i in lista.items], lista.supermercados)
 
 
 @router.get("/supermercados")
@@ -67,20 +110,30 @@ def listar_categorias(
     return {"categorias": obtener_categorias(supermercado)}
 
 
-@router.post("/scrapear")
-def disparar_scraping():
-    if is_cache_fresh():
-        logger.info("Cache vigente, omitiendo scraping")
-        return {"mensaje": "Los datos aún están frescos. Usá cache_ttl_hours para forzar."}
+@router.post("/scrapear", status_code=202)
+def disparar_scraping(
+    background_tasks: BackgroundTasks,
+    force: bool = Query(False, description="Scrapear aunque los datos estén frescos"),
+    supermercado: Optional[List[str]] = Query(None, description="Solo estos (p. ej. disco)"),
+):
+    """Lanza el scraping en segundo plano. El progreso se ve en GET /api/scrapear."""
+    if estado_scraping["en_curso"]:
+        return {"mensaje": "Ya hay un scraping en curso", "estado": _estado()}
+    if is_cache_fresh() and not force:
+        return {"mensaje": "Los datos aún están frescos. Usá ?force=true para forzar."}
+    background_tasks.add_task(ejecutar_scraping, supermercado)
+    return {"mensaje": "Scraping iniciado", "estado": _estado()}
 
-    resultados = {}
-    for scraper in get_all_scrapers():
-        try:
-            productos = scraper.scrapear()
-            cantidad = guardar_productos(productos)
-            resultados[scraper.supermercado] = f"{cantidad} productos"
-        except Exception as e:
-            logger.exception("Error scraping %s", scraper.supermercado)
-            resultados[scraper.supermercado] = f"error: {e}"
-    mark_scrape()
-    return {"resultados": resultados}
+
+@router.get("/scrapear")
+def estado():
+    return _estado()
+
+
+def _estado():
+    return {
+        "en_curso": estado_scraping["en_curso"],
+        "inicio": estado_scraping["inicio"].isoformat() if estado_scraping["inicio"] else None,
+        "fin": estado_scraping["fin"].isoformat() if estado_scraping["fin"] else None,
+        "resultados": estado_scraping["resultados"],
+    }
