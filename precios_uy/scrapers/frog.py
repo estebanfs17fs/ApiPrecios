@@ -71,7 +71,9 @@ class FrogScraper(ScraperBase):
             sku=item.get("data-productid"),
         )
 
-    def _scrape_categoria(self, href: str, nombre: str, vistos: Set[str]) -> List[ProductoScrapeado]:
+    def _scrape_categoria(
+        self, href: str, nombre: str, vistos: Set[str]
+    ) -> List[ProductoScrapeado]:
         result = []
         for pagina in range(1, self.MAX_PAGINAS + 1):
             url = f"{self.BASE_URL}{href}?pagenumber={pagina}"
