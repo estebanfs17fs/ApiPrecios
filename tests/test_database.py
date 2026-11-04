@@ -239,3 +239,35 @@ class TestRelevancia:
         )
         assert buscar_productos("arroz")[0].nombre == "Arroz Saman 1 kg"
         assert comparar_productos("arroz")[0]["nombre"] == "Arroz Saman 1 kg"
+
+
+class TestPacksYPrecios:
+    def test_no_junta_pack_con_unidad(self):
+        guardar_productos(
+            [
+                PS(supermercado="Ta-Ta", nombre="Arroz Blanco Saman 500 g", precio=43.0),
+                PS(supermercado="El Dorado", nombre="Arroz Blanco Saman 500 g x 5", precio=157.0),
+            ]
+        )
+        assert len(comparar_productos("arroz saman")) == 2
+
+    def test_no_junta_precios_muy_distintos(self):
+        # mismo nombre y medida, pero uno sale más del triple: no se toman como iguales
+        guardar_productos(
+            [
+                PS(supermercado="A", nombre="Arroz Blanco Saman 500 g", precio=43.0),
+                PS(supermercado="B", nombre="Arroz Blanco Saman 500 g", precio=157.0),
+            ]
+        )
+        assert len(comparar_productos("arroz saman")) == 2
+
+    def test_renormalizar(self, session):
+        from precios_uy.database import renormalizar
+
+        guardar_productos([PS(supermercado="A", nombre="Agua 500 ml pack x 6", precio=90.0)])
+        p = session.query(Producto).one()
+        p.medida = "500ml"  # como quedaba con la versión anterior
+        session.commit()
+        assert renormalizar() == 1
+        session.expire_all()
+        assert session.query(Producto).one().medida == "6x500ml"

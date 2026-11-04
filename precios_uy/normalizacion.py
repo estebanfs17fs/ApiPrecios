@@ -48,16 +48,51 @@ def normalizar_texto(texto: str) -> str:
     return re.sub(r"\s+", " ", texto).strip()
 
 
+_UNIDADES_PESO_VOLUMEN = [u for u, (base, _) in _UNIDADES.items() if base != "un"]
+_U = "|".join(sorted(_UNIDADES_PESO_VOLUMEN, key=len, reverse=True))
+_NUM = r"\d+(?:[.,]\d+)?"
+# packs: "6 x 500 g", "500 g x 6", "pack x 6", "x6", "x 3 un"
+_RE_PACKS = [
+    re.compile(rf"\b(\d+)\s*x\s*{_NUM}\s*(?:{_U})\b"),
+    re.compile(rf"{_NUM}\s*(?:{_U})\s*x\s*(\d+)\b"),
+    re.compile(r"\b(?:pack|paquete|display|caja|bandeja)\s*(?:x|de)?\s*(\d+)\b"),
+    re.compile(rf"\bx\s*(\d+)(?![.,]?\d*\s*(?:{_U})\b)"),
+]
+
+
+def extraer_cantidad(texto: str) -> int:
+    """Cuántas unidades trae el pack: 'Pack x 6 Agua 500 ml' -> 6. 1 si no es pack."""
+    t = normalizar_texto(texto)
+    for patron in _RE_PACKS:
+        m = patron.search(t)
+        if m:
+            n = int(m.group(1))
+            if 2 <= n <= 100:
+                return n
+    return 1
+
+
 def extraer_medida(texto: str) -> Optional[str]:
-    """Devuelve la medida normalizada, p. ej. '1 Kg' -> '1000g', '1,5L' -> '1500ml'."""
-    m = _RE_MEDIDA.search(normalizar_texto(texto))
-    if not m:
+    """
+    Devuelve la medida normalizada, p. ej. '1 Kg' -> '1000g', '1,5L' -> '1500ml'.
+    Los packs llevan la cantidad adelante: 'Agua 500 ml pack x 6' -> '6x500ml',
+    así no se confunden con la unidad suelta.
+    """
+    t = normalizar_texto(texto)
+    medidas = list(_RE_MEDIDA.finditer(t))
+    if not medidas:
         return None
+    # preferir peso o volumen antes que "unidades"
+    m = next((x for x in medidas if _UNIDADES[x.group(2)][0] != "un"), medidas[0])
     valor = float(m.group(1).replace(",", "."))
     base, factor = _UNIDADES[m.group(2)]
     total = valor * factor
     total_txt = str(int(total)) if total == int(total) else f"{total:g}"
-    return f"{total_txt}{base}"
+    medida = f"{total_txt}{base}"
+    cantidad = extraer_cantidad(texto)
+    if base != "un" and cantidad > 1:
+        medida = f"{cantidad}x{medida}"
+    return medida
 
 
 def tokens(texto: str) -> Set[str]:

@@ -31,3 +31,14 @@ def test_ean():
     assert ean_valido("7730123000017") == "7730123000017"
     assert ean_valido("abc") is None
     assert ean_valido(None) is None
+
+
+def test_packs():
+    assert extraer_medida("Agua Salus 500 ml pack x 6") == "6x500ml"
+    assert extraer_medida("Cerveza Patricia 6 x 473 ml") == "6x473ml"
+    assert extraer_medida("Arroz Saman 500 g x 5") == "5x500g"
+    assert extraer_medida("Yogur Conaprole x6 120 g") == "6x120g"
+    assert extraer_medida("Arroz Saman 500 g") == "500g"
+    # "1 kg + 100 g" de regalo sigue siendo 1 kg
+    assert extraer_medida("Yerba Sara 1 kg + 100 g") == "1000g"
+    assert extraer_medida("Huevos x 12") is None

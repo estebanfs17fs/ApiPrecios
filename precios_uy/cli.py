@@ -86,6 +86,14 @@ def comparar(termino):
 
 
 @cli.command()
+def renormalizar():
+    """Recalcula medidas y nombres normalizados (después de actualizar el programa)."""
+    from precios_uy.database import renormalizar as _renormalizar
+
+    click.echo(f"{_renormalizar()} productos actualizados")
+
+
+@cli.command()
 def supermercados():
     """Lista los supermercados disponibles en la BD."""
     sups = obtener_supermercados()

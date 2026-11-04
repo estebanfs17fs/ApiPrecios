@@ -193,11 +193,23 @@ def obtener_categorias(supermercado: Optional[str] = None) -> List[str]:
         session.close()
 
 
+# si un precio es más del triple que el otro, casi seguro no es el mismo producto
+# (un pack contra la unidad, o una presentación distinta que el nombre no aclara)
+MAX_RELACION_PRECIOS = 3.0
+
+
+def precios_compatibles(a: float, b: float) -> bool:
+    if not a or not b:
+        return True
+    return max(a, b) / min(a, b) <= MAX_RELACION_PRECIOS
+
+
 def son_equivalentes(a: Producto, b: Producto) -> bool:
     if a.ean and b.ean:
         return a.ean == b.ean
     return (
-        similitud(a.nombre_normalizado or "", b.nombre_normalizado or "", a.medida, b.medida)
+        precios_compatibles(a.precio, b.precio)
+        and similitud(a.nombre_normalizado or "", b.nombre_normalizado or "", a.medida, b.medida)
         >= UMBRAL_SIMILITUD
     )
 
@@ -284,6 +296,8 @@ def _equivalente_en(session, ref: Producto, supermercado: str) -> Optional[Produ
     mejor, mejor_score = None, 0.0
     for c in candidatos.limit(1000):
         if ref.ean and c.ean and ref.ean != c.ean:
+            continue
+        if not precios_compatibles(ref.precio, c.precio):
             continue
         score = similitud(ref.nombre_normalizado, c.nombre_normalizado or "", ref.medida, c.medida)
         if score > mejor_score or (
@@ -415,6 +429,22 @@ def migrar_v1() -> int:
         conn.execute(text("DROP TABLE productos_v1"))
     logger.info("Migradas %d filas del esquema anterior", total)
     return total
+
+
+def renormalizar() -> int:
+    """Recalcula nombre normalizado y medida de todos los productos (tras cambiar las reglas)."""
+    session = SessionLocal()
+    try:
+        cambiados = 0
+        for p in session.query(Producto).yield_per(2000):
+            nn, medida = nombre_normalizado(p.nombre)[:300], extraer_medida(p.nombre)
+            if p.nombre_normalizado != nn or p.medida != medida:
+                p.nombre_normalizado, p.medida = nn, medida
+                cambiados += 1
+        session.commit()
+        return cambiados
+    finally:
+        session.close()
 
 
 def contar_productos() -> int:
