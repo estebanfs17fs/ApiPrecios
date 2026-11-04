@@ -10,6 +10,7 @@ from precios_uy.database import (
     init,
     obtener_supermercados,
     obtener_ultimos_precios,
+    renormalizar,
 )
 from precios_uy.scheduler import ejecutar_scraping, scheduler
 
@@ -96,6 +97,12 @@ def supermercados():
         click.echo(
             "No hay datos. Ejecutá 'scrapear' para poblar la base de datos."
         )
+
+
+@cli.command("renormalizar")
+def renormalizar_cmd():
+    """Recalcula medidas y nombres normalizados de lo ya guardado."""
+    click.echo(f"{renormalizar()} productos actualizados")
 
 
 @cli.command()

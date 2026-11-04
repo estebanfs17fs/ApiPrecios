@@ -21,7 +21,8 @@ STOPWORDS = {
 
 # unidad -> (unidad base, factor)
 _UNIDADES = {
-    "kg": ("g", 1000), "kgs": ("g", 1000), "kilo": ("g", 1000), "kilos": ("g", 1000),
+    "kg": ("g", 1000), "kgs": ("g", 1000), "k": ("g", 1000), "kilo": ("g", 1000),
+    "kilos": ("g", 1000),
     "g": ("g", 1), "gr": ("g", 1), "grs": ("g", 1), "gramos": ("g", 1),
     "l": ("ml", 1000), "lt": ("ml", 1000), "lts": ("ml", 1000), "litro": ("ml", 1000),
     "litros": ("ml", 1000),
@@ -30,9 +31,17 @@ _UNIDADES = {
     "uds": ("un", 1),
 }
 
-_RE_MEDIDA = re.compile(
-    r"(\d+(?:[.,]\d+)?)\s*(" + "|".join(sorted(_UNIDADES, key=len, reverse=True)) + r")\b"
+_ALTERNATIVAS = "|".join(sorted(_UNIDADES, key=len, reverse=True))
+_UNIDAD = "(?:" + _ALTERNATIVAS + r")\b"
+# "6 x 1 l", "6x330ml": cantidad de envases delante de la medida
+_RE_PACK_DELANTE = re.compile(r"\b(\d+)\s*x\s*(?=\d+(?:[.,]\d+)?\s*" + _UNIDAD + ")")
+# "pack x 6", "x6": cantidad de envases que no es una medida
+# (los metros no son medida, pero "x 30 m" tampoco es un pack)
+_RE_PACK = re.compile(
+    r"(?:\bpack\s*x?|\bx)\s*(\d+)\b(?![.,]\d)"
+    r"(?!\s*(?:" + _ALTERNATIVAS + r"|m|mt|mts|metros|cm)\b)"
 )
+_RE_MEDIDA = re.compile(r"(\d+(?:[.,]\d+)?)\s*(" + _ALTERNATIVAS + r")\b")
 _RE_EAN = re.compile(r"^\d{8,14}$")
 
 
@@ -48,21 +57,35 @@ def normalizar_texto(texto: str) -> str:
     return re.sub(r"\s+", " ", texto).strip()
 
 
-def extraer_medida(texto: str) -> Optional[str]:
-    """Devuelve la medida normalizada, p. ej. '1 Kg' -> '1000g', '1,5L' -> '1500ml'."""
-    m = _RE_MEDIDA.search(normalizar_texto(texto))
-    if not m:
-        return None
-    valor = float(m.group(1).replace(",", "."))
-    base, factor = _UNIDADES[m.group(2)]
-    total = valor * factor
+def _formatear(total: float, base: str) -> str:
     total_txt = str(int(total)) if total == int(total) else f"{total:g}"
     return f"{total_txt}{base}"
+
+
+def extraer_medida(texto: str) -> Optional[str]:
+    """
+    Devuelve la medida normalizada, p. ej. '1 Kg' -> '1000g', '1,5L' -> '1500ml'.
+    Los packs llevan la cantidad de envases delante: 'Pack x 6 1 L' y
+    '6 x 1 L' -> '6x1000ml', así no se confunden con la unidad suelta.
+    """
+    normal = normalizar_texto(texto)
+    m = _RE_MEDIDA.search(normal)
+    pack = _RE_PACK_DELANTE.search(normal) or _RE_PACK.search(normal)
+    envases = int(pack.group(1)) if pack else 1
+    if not m:
+        return f"{envases}un" if envases > 1 else None
+    valor = float(m.group(1).replace(",", "."))
+    base, factor = _UNIDADES[m.group(2)]
+    medida = _formatear(valor * factor, base)
+    if base == "un":
+        return _formatear(valor * envases, base)
+    return f"{envases}x{medida}" if envases > 1 else medida
 
 
 def tokens(texto: str) -> Set[str]:
     """Palabras significativas del nombre, sin la medida ni palabras vacías."""
     limpio = _RE_MEDIDA.sub(" ", normalizar_texto(texto))
+    limpio = _RE_PACK.sub(" ", _RE_PACK_DELANTE.sub(" ", limpio))
     limpio = re.sub(r"[.,]", " ", limpio)
     return {t for t in limpio.split() if t not in STOPWORDS and len(t) > 1}
 

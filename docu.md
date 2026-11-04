@@ -16,8 +16,9 @@ Precios UY recolecta precios de supermercados uruguayos, los guarda en una base 
 | **El Dorado** | API VTEX | Trae EAN |
 | **Disco** | Navegador (Playwright) | Scroll infinito y lazy loading |
 | **Devoto** | Navegador (Playwright) | Igual que Disco |
-| **Tienda Inglesa** | HTML paginado + cloudscraper | Recorre todas las páginas |
-| **Frog**, **Kinko** | HTML | Solo la portada; falta un scraper completo |
+| **Tienda Inglesa** | HTML paginado + cloudscraper | Hoy bloquea con Cloudflare (403) |
+| **Frog** | HTML paginado (nopCommerce) | Categorías raíz del menú, `?pagenumber=N`; pausa entre páginas porque corta con 405 |
+| **Kinko** | — | Sin tienda online (la web es solo institucional) |
 | **Macromercado** | — | Sin tienda online |
 
 ---
@@ -77,6 +78,7 @@ precios-uy listar -s Disco -l 20
 precios-uy buscar "dulce de leche"
 precios-uy comparar "arroz 1 kg"       # el mismo producto en cada supermercado
 precios-uy supermercados
+precios-uy renormalizar                # recalcula medidas tras cambiar las reglas de normalización
 precios-uy schedule                    # scraping automático cada SCRAP_INTERVAL_HOURS
 ```
 
@@ -107,11 +109,11 @@ curl -X POST http://localhost:8000/api/lista/comparar \
        "supermercados": ["Disco", "Ta-Ta"]}'
 ```
 
-Cada item es un `producto_id` (se busca ese producto o su equivalente en cada supermercado) o un `texto` (se toma el más barato que coincida). La respuesta trae:
+Cada item es un `producto_id` (se busca ese producto o su equivalente en cada supermercado) o un `texto`. Con texto se elige un mismo producto para todos: entre los que coinciden y están en casi todos los supermercados, el más barato en promedio. Donde ese producto no está se toma el más barato que coincida y el detalle lo marca con `"aproximado": true`. La respuesta trae:
 
 - `supermercados`: total, encontrados, faltantes y detalle por supermercado, ordenados de mejor a peor.
 - `recomendado`: el supermercado más barato que tiene toda la lista.
-- `combinacion_optima`: comprando cada producto donde está más barato.
+- `combinacion_optima`: comprando cada producto donde está más barato (los aproximados solo cuentan si no hay otra opción).
 
 ---
 
@@ -125,7 +127,7 @@ supermercado      (idx)                 producto_id  FK → productos.id
 identificador     sku, url o nombre     precio
 nombre                                  precio_anterior
 nombre_normalizado (idx)                fecha        (idx)
-medida            "1000g", "1500ml"
+medida            "1000g", "1500ml", "6x1000ml"
 ean               (idx)
 precio            precio actual
 precio_anterior   precio de lista si hay descuento
@@ -141,7 +143,8 @@ UNIQUE(supermercado, identificador)
 ### Cómo se reconoce el mismo producto
 
 1. Si los dos tienen EAN, se comparan por EAN.
-2. Si no, se normaliza el nombre (sin tildes, mayúsculas, palabras vacías ni orden) y la medida (`1 Kg` = `1000 grs`). Con medidas distintas son productos distintos; si no, se exige al menos 60 % de palabras en común.
+2. Si no, se normaliza el nombre (sin tildes, mayúsculas, palabras vacías ni orden) y la medida (`1 Kg` = `1000 grs`; los packs llevan la cantidad: `6 x 1 L` y `Pack x 6 1 L` = `6x1000ml`). Con medidas distintas son productos distintos; si no, se exige al menos 60 % de palabras en común, u 80 % si solo uno de los dos tiene medida.
+3. Un producto entra a un grupo solo si es equivalente a todos los del grupo, así un nombre sin medida no une presentaciones distintas.
 
 ---
 
@@ -184,7 +187,6 @@ python -m pytest tests/ -m "not navegador"   # sin las pruebas que abren Chromiu
 ## 9. Pendientes
 
 - [ ] Probar los scrapers contra los sitios reales y ajustar selectores si cambiaron.
-- [ ] Scrapers completos para Frog y Kinko.
 - [ ] Gráfico de evolución de precios en la web (el historial ya está en la API).
 - [ ] Alertas de cambios de precio.
 - [ ] Autenticación y rate limiting en la API.

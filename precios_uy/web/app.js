@@ -182,7 +182,10 @@ function pintarComparacion(r) {
   for (const s of r.supermercados) {
     html += `<details><summary>${esc(s.supermercado)}: detalle</summary><table><tbody>`;
     for (const d of s.detalle) {
-      html += `<tr><td>${d.cantidad} × ${esc(d.producto.nombre)}</td><td class="num">${pesos.format(d.subtotal)}</td></tr>`;
+      const otro = d.aproximado
+        ? `<br><span class="sutil">No tiene el mismo producto que los demás; es el más barato parecido.</span>`
+        : "";
+      html += `<tr><td>${d.cantidad} × ${esc(d.producto.nombre)}${otro}</td><td class="num">${pesos.format(d.subtotal)}</td></tr>`;
     }
     for (const i of s.faltantes) {
       html += `<tr><td class="falta">Falta: ${nombreItem(i)}</td><td></td></tr>`;
