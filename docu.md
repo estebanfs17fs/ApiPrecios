@@ -28,7 +28,9 @@ Precios UY recolecta precios de supermercados uruguayos, los guarda en una base 
 ```
 precios_uy/
 ├── api/              → FastAPI: rutas REST y servidor (también sirve la web)
-├── web/              → Frontend (HTML + JS, sin build): buscar, lista, comparar
+├── web/              → Frontend simple (HTML + JS, sin build) que sirve la API en /
+...
+frontend/             → Listita: la app web (React + Vite) para armar, guardar y re-comparar listas
 ├── scrapers/
 │   ├── base.py         → ScraperBase (cloudscraper, parseo de precios)
 │   ├── vtex_base.py    → Base para tiendas VTEX (Ta-Ta, El Dorado)
@@ -69,6 +71,14 @@ Abrir `http://localhost:8000/`. Desde ahí se buscan productos (agrupados por su
 
 Si la base está vacía, la web ofrece un botón para traer precios.
 
+### App web (Listita)
+
+La app completa está en [`frontend/`](./frontend/README.md): se arma la lista viendo el precio de cada producto en cada supermercado, al terminar dice dónde comprar cada cosa (una lista por supermercado) y la lista queda guardada para volver a compararla otro día.
+
+```bash
+cd frontend && npm install && npm run dev   # http://localhost:5173 (con la API en el 8000)
+```
+
 ### CLI
 
 ```bash
@@ -95,6 +105,12 @@ Documentación interactiva en `http://localhost:8000/docs`.
 | `GET /api/productos/comparar?q=` | Busca y agrupa el mismo producto entre supermercados |
 | `GET /api/productos/{id}` | Detalle e historial de precios |
 | `POST /api/lista/comparar` | Compara una lista de compras (ver abajo) |
+| `GET /api/productos/{id}/opciones` | Ese producto en cada supermercado, del más barato al más caro |
+| `GET /api/listas` | Listas guardadas del usuario (header `X-Usuario`) |
+| `POST /api/listas` | Guarda una lista (`nombre`, `items`, `supermercados`) |
+| `GET/PUT/DELETE /api/listas/{id}` | Ver (con su historial), editar o borrar una lista |
+| `POST /api/listas/{id}/ejecutar` | Compara la lista con los precios de hoy y guarda el resultado |
+| `GET /api/listas/{id}/ejecuciones/{eid}` | Un resultado anterior |
 | `GET /api/supermercados` | Supermercados con datos |
 | `GET /api/categorias` | Categorías |
 | `POST /api/scrapear` | Lanza el scraping en segundo plano (`force`, `supermercado`) |
@@ -113,7 +129,11 @@ Cada item es un `producto_id` (se busca ese producto o su equivalente en cada su
 
 - `supermercados`: total, encontrados, faltantes y detalle por supermercado, ordenados de mejor a peor.
 - `recomendado`: el supermercado más barato que tiene toda la lista.
-- `combinacion_optima`: comprando cada producto donde está más barato (los aproximados solo cuentan si no hay otra opción).
+- `combinacion_optima`: comprando cada producto donde está más barato (los aproximados solo cuentan si no hay otra opción). `por_supermercado` la trae separada en una lista de compras por supermercado.
+
+### Listas guardadas
+
+No hay cuentas: cada cliente manda un id anónimo en el header `X-Usuario` (8 a 64 letras, números, `-` o `_`) y solo ve sus listas. Cada `POST /api/listas/{id}/ejecutar` guarda el resultado completo, así se puede ver cómo cambió el total de la misma lista con el tiempo.
 
 ---
 

@@ -308,6 +308,29 @@ def _equivalente_en(session, ref: Producto, supermercado: str) -> Optional[Produ
     return mejor
 
 
+def opciones_producto(
+    producto_id: int, supermercados: Optional[List[str]] = None
+) -> Optional[List[dict]]:
+    """
+    El producto y su equivalente en cada supermercado, ordenados por precio.
+    Devuelve None si el producto no existe.
+    """
+    session = SessionLocal()
+    try:
+        ref = session.get(Producto, producto_id)
+        if ref is None:
+            return None
+        sups = [
+            r[0]
+            for r in session.query(Producto.supermercado).distinct()
+            if not supermercados or r[0] in supermercados
+        ]
+        encontrados = [_equivalente_en(session, ref, s) for s in sups]
+        return [p.to_dict() for p in sorted((p for p in encontrados if p), key=lambda p: p.precio)]
+    finally:
+        session.close()
+
+
 def _mas_barato_por_texto(session, texto: str, supermercado: str) -> Optional[Producto]:
     return (
         session.query(Producto)
@@ -438,6 +461,22 @@ def comparar_lista(items: List[dict], supermercados: Optional[List[str]] = None)
             else:
                 faltantes_optima.append(i)
 
+        # la combinación óptima como una lista de compras por supermercado
+        por_super: Dict[str, List[dict]] = {}
+        for fila in optima:
+            por_super.setdefault(fila["producto"]["supermercado"], []).append(fila)
+        listas_por_super = sorted(
+            (
+                {
+                    "supermercado": s,
+                    "total": round(sum(f["subtotal"] for f in filas), 2),
+                    "detalle": filas,
+                }
+                for s, filas in por_super.items()
+            ),
+            key=lambda x: (-len(x["detalle"]), -x["total"]),
+        )
+
         return {
             "items": [
                 {"indice": i, "descripcion": descripciones[i], "cantidad": it.get("cantidad", 1)}
@@ -449,6 +488,7 @@ def comparar_lista(items: List[dict], supermercados: Optional[List[str]] = None)
                 "total": round(sum(f["subtotal"] for f in optima), 2),
                 "detalle": optima,
                 "faltantes": faltantes_optima,
+                "por_supermercado": listas_por_super,
             },
         }
     finally:

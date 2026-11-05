@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Text,
     UniqueConstraint,
     create_engine,
     inspect,
@@ -107,6 +108,56 @@ class HistorialPrecio(Base):
             "precio": self.precio,
             "precio_anterior": self.precio_anterior,
             "fecha": self.fecha.isoformat() if self.fecha else None,
+        }
+
+
+class ListaGuardada(Base):
+    """Una lista de compras guardada para volver a compararla con precios nuevos."""
+
+    __tablename__ = "listas"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    # identificador anónimo que genera el navegador (no hay cuentas todavía)
+    usuario = Column(String(64), nullable=False, index=True)
+    nombre = Column(String(120), nullable=False)
+    # [{"producto_id", "texto", "nombre", "cantidad"}] en JSON
+    items = Column(Text, nullable=False)
+    # supermercados a considerar en JSON, o NULL para todos
+    supermercados = Column(Text, nullable=True)
+    creado = Column(DateTime, default=datetime.now)
+    actualizado = Column(DateTime, default=datetime.now)
+
+    ejecuciones = relationship(
+        "EjecucionLista",
+        back_populates="lista",
+        cascade="all, delete-orphan",
+        order_by="EjecucionLista.fecha",
+    )
+
+
+class EjecucionLista(Base):
+    """Resultado de comparar una lista guardada en un momento dado."""
+
+    __tablename__ = "ejecuciones_lista"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    lista_id = Column(Integer, ForeignKey("listas.id"), nullable=False, index=True)
+    fecha = Column(DateTime, default=datetime.now, index=True)
+    total_optimo = Column(Float, nullable=False)
+    recomendado = Column(String(50), nullable=True)
+    total_recomendado = Column(Float, nullable=True)
+    # respuesta completa de la comparación, en JSON
+    resultado = Column(Text, nullable=False)
+
+    lista = relationship("ListaGuardada", back_populates="ejecuciones")
+
+    def resumen(self):
+        return {
+            "id": self.id,
+            "fecha": self.fecha.isoformat() if self.fecha else None,
+            "total_optimo": self.total_optimo,
+            "recomendado": self.recomendado,
+            "total_recomendado": self.total_recomendado,
         }
 
 
