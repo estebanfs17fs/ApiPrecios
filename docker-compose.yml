@@ -20,5 +20,14 @@ services:
       retries: 3
       start_period: 10s
 
+  web:
+    build: ./frontend
+    container_name: precios-uy-web
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
 volumes:
   api_data:

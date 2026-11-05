@@ -97,6 +97,115 @@ class TestMacromercadoScraper:
         assert scraper.scrapear() == []
 
 
+class TestKinkoScraper:
+    def test_devuelve_lista_vacia(self):
+        assert KinkoScraper().scrapear() == []
+
+
+_FROG_HOME = """
+<ul class="mega-menu">
+  <li class="has-sublist mega-menu-categories root-category-items">
+    <a class="with-subcategories" href="/almacen-2">ALMACEN</a>
+    <ul class="sublist"><li><a href="/aceites" title="ACEITES">ACEITES</a></li></ul>
+  </li>
+  <li class="root-category-items"><a href="/bebida">BEBIDA</a></li>
+  <li class="root-category-items"><a href="/almacen-2">ALMACEN</a></li>
+</ul>
+"""
+
+
+def _frog_pagina(productos, siguiente):
+    items = "".join(
+        f"""
+        <div class="product-item" data-productid="{pid}">
+          <div class="picture"><a href="/{slug}">
+            <img src="data:image/gif;base64,R0l" data-lazyloadsrc="https://i.aw.uy/frog/{pid}.jpeg">
+          </a></div>
+          <div class="details">
+            <h2 class="product-title"><a href="/{slug}">{nombre}</a></h2>
+            <div class="prices">
+              {f'<span class="price old-price">$ {anterior}</span>' if anterior else ''}
+              <span class="price actual-price">$ {precio}</span>
+            </div>
+          </div>
+        </div>"""
+        for pid, slug, nombre, precio, anterior in productos
+    )
+    pager = '<div class="pager"><ul><li class="next-page"><a>Siguiente</a></li></ul></div>'
+    return f'<div class="product-grid">{items}</div>{pager if siguiente else ""}'
+
+
+class TestFrogScraper:
+    def test_recorre_categorias_raiz_y_paginas(self, monkeypatch):
+        from bs4 import BeautifulSoup
+
+        paginas = {
+            "https://frog.uy/": _FROG_HOME,
+            "https://frog.uy/almacen-2?pagenumber=1": _frog_pagina(
+                [(1, "arroz-saman-1kg", "Arroz Saman 1 Kg", "60", None)], siguiente=True
+            ),
+            "https://frog.uy/almacen-2?pagenumber=2": _frog_pagina(
+                [(2, "aceite-optimo-900ml", "Aceite Optimo 900 Ml", "1.234,50", "1.300")],
+                siguiente=False,
+            ),
+            # el mismo producto en dos categorías se cuenta una vez
+            "https://frog.uy/bebida?pagenumber=1": _frog_pagina(
+                [(1, "arroz-saman-1kg", "Arroz Saman 1 Kg", "60", None),
+                 (3, "agua-salus-2l", "Agua Salus 2 L", "75", None)],
+                siguiente=False,
+            ),
+        }
+        pedidas = []
+
+        def get_soup(url):
+            pedidas.append(url)
+            return BeautifulSoup(paginas[url], "lxml")
+
+        monkeypatch.setattr("precios_uy.scrapers.frog.time.sleep", lambda s: None)
+        scraper = FrogScraper()
+        monkeypatch.setattr(scraper, "_get_soup", get_soup)
+        lotes = []
+        scraper.guardar_parcial = lambda lote: lotes.append(lote) or len(lote)
+
+        productos = scraper.scrapear()
+
+        assert [p.nombre for p in productos] == [
+            "Arroz Saman 1 Kg", "Aceite Optimo 900 Ml", "Agua Salus 2 L",
+        ]
+        aceite = productos[1]
+        assert aceite.precio == 1234.5
+        assert aceite.precio_anterior == 1300.0
+        assert aceite.categoria == "Almacen"
+        assert aceite.sku == "2"
+        assert aceite.url_producto == "https://frog.uy/aceite-optimo-900ml"
+        assert aceite.url_imagen == "https://i.aw.uy/frog/2.jpeg"
+        # ALMACEN aparece dos veces en el menú, pero se recorre una sola vez
+        assert pedidas.count("https://frog.uy/almacen-2?pagenumber=1") == 1
+        assert [len(lote) for lote in lotes] == [2, 1]
+
+    def test_espera_y_reintenta_ante_405(self, monkeypatch):
+        from bs4 import BeautifulSoup
+
+        esperas = []
+        monkeypatch.setattr("precios_uy.scrapers.frog.time.sleep", esperas.append)
+
+        class Cortado(Exception):
+            response = type("R", (), {"status_code": 405})()
+
+        respuestas = [Cortado(), BeautifulSoup("<p>ok</p>", "lxml")]
+
+        def get_soup(url):
+            r = respuestas.pop(0)
+            if isinstance(r, Exception):
+                raise r
+            return r
+
+        scraper = FrogScraper()
+        monkeypatch.setattr(scraper, "_get_soup", get_soup)
+        assert scraper._get_pagina("https://frog.uy/x").p.text == "ok"
+        assert FrogScraper.ESPERAS_LIMITE[0] in esperas
+
+
 class TestVtexCanalVenta:
     def test_tata_usa_canal_4(self):
         url = TataScraper()._url_busqueda("fq=C:/1/", 0, 49)

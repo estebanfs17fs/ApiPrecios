@@ -16,8 +16,9 @@ Precios UY recolecta precios de supermercados uruguayos, los guarda en una base 
 | **El Dorado** | API VTEX | Trae EAN |
 | **Disco** | Navegador (Playwright) | Scroll infinito y lazy loading |
 | **Devoto** | Navegador (Playwright) | Igual que Disco |
-| **Tienda Inglesa** | HTML paginado + cloudscraper | Recorre todas las páginas |
-| **Frog**, **Kinko** | HTML | Solo la portada; falta un scraper completo |
+| **Tienda Inglesa** | HTML paginado + cloudscraper | Hoy bloquea con Cloudflare (403) |
+| **Frog** | HTML paginado (nopCommerce) | Categorías raíz del menú, `?pagenumber=N`; pausa entre páginas porque corta con 405 |
+| **Kinko** | — | Sin tienda online (la web es solo institucional) |
 | **Macromercado** | — | Sin tienda online |
 
 ---
@@ -27,7 +28,9 @@ Precios UY recolecta precios de supermercados uruguayos, los guarda en una base 
 ```
 precios_uy/
 ├── api/              → FastAPI: rutas REST y servidor (también sirve la web)
-├── web/              → Frontend (HTML + JS, sin build): buscar, lista, comparar
+├── web/              → Frontend simple (HTML + JS, sin build) que sirve la API en /
+...
+frontend/             → Listita: la app web (React + Vite) para armar, guardar y re-comparar listas
 ├── scrapers/
 │   ├── base.py         → ScraperBase (cloudscraper, parseo de precios)
 │   ├── vtex_base.py    → Base para tiendas VTEX (Ta-Ta, El Dorado)
@@ -68,6 +71,14 @@ Abrir `http://localhost:8000/`. Desde ahí se buscan productos (agrupados por su
 
 Si la base está vacía, la web ofrece un botón para traer precios.
 
+### App web (Listita)
+
+La app completa está en [`frontend/`](./frontend/README.md): se arma la lista viendo el precio de cada producto en cada supermercado, al terminar dice dónde comprar cada cosa (una lista por supermercado) y la lista queda guardada para volver a compararla otro día.
+
+```bash
+cd frontend && npm install && npm run dev   # http://localhost:5173 (con la API en el 8000)
+```
+
 ### CLI
 
 ```bash
@@ -77,6 +88,7 @@ precios-uy listar -s Disco -l 20
 precios-uy buscar "dulce de leche"
 precios-uy comparar "arroz 1 kg"       # el mismo producto en cada supermercado
 precios-uy supermercados
+precios-uy renormalizar                # recalcula medidas tras cambiar las reglas de normalización
 precios-uy schedule                    # scraping automático cada SCRAP_INTERVAL_HOURS
 ```
 
@@ -93,6 +105,12 @@ Documentación interactiva en `http://localhost:8000/docs`.
 | `GET /api/productos/comparar?q=` | Busca y agrupa el mismo producto entre supermercados |
 | `GET /api/productos/{id}` | Detalle e historial de precios |
 | `POST /api/lista/comparar` | Compara una lista de compras (ver abajo) |
+| `GET /api/productos/{id}/opciones` | Ese producto en cada supermercado, del más barato al más caro |
+| `GET /api/listas` | Listas guardadas del usuario (header `X-Usuario`) |
+| `POST /api/listas` | Guarda una lista (`nombre`, `items`, `supermercados`) |
+| `GET/PUT/DELETE /api/listas/{id}` | Ver (con su historial), editar o borrar una lista |
+| `POST /api/listas/{id}/ejecutar` | Compara la lista con los precios de hoy y guarda el resultado |
+| `GET /api/listas/{id}/ejecuciones/{eid}` | Un resultado anterior |
 | `GET /api/supermercados` | Supermercados con datos |
 | `GET /api/categorias` | Categorías |
 | `POST /api/scrapear` | Lanza el scraping en segundo plano (`force`, `supermercado`) |
@@ -107,11 +125,15 @@ curl -X POST http://localhost:8000/api/lista/comparar \
        "supermercados": ["Disco", "Ta-Ta"]}'
 ```
 
-Cada item es un `producto_id` (se busca ese producto o su equivalente en cada supermercado) o un `texto` (se toma el más barato que coincida). La respuesta trae:
+Cada item es un `producto_id` (se busca ese producto o su equivalente en cada supermercado) o un `texto`. Con texto se elige un mismo producto para todos: entre los que coinciden y están en casi todos los supermercados, el más barato en promedio. Donde ese producto no está se toma el más barato que coincida y el detalle lo marca con `"aproximado": true`. La respuesta trae:
 
 - `supermercados`: total, encontrados, faltantes y detalle por supermercado, ordenados de mejor a peor.
 - `recomendado`: el supermercado más barato que tiene toda la lista.
-- `combinacion_optima`: comprando cada producto donde está más barato.
+- `combinacion_optima`: comprando cada producto donde está más barato (los aproximados solo cuentan si no hay otra opción). `por_supermercado` la trae separada en una lista de compras por supermercado.
+
+### Listas guardadas
+
+No hay cuentas: cada cliente manda un id anónimo en el header `X-Usuario` (8 a 64 letras, números, `-` o `_`) y solo ve sus listas. Cada `POST /api/listas/{id}/ejecutar` guarda el resultado completo, así se puede ver cómo cambió el total de la misma lista con el tiempo.
 
 ---
 
@@ -125,7 +147,7 @@ supermercado      (idx)                 producto_id  FK → productos.id
 identificador     sku, url o nombre     precio
 nombre                                  precio_anterior
 nombre_normalizado (idx)                fecha        (idx)
-medida            "1000g", "1500ml"
+medida            "1000g", "1500ml", "6x1000ml"
 ean               (idx)
 precio            precio actual
 precio_anterior   precio de lista si hay descuento
@@ -141,7 +163,8 @@ UNIQUE(supermercado, identificador)
 ### Cómo se reconoce el mismo producto
 
 1. Si los dos tienen EAN, se comparan por EAN.
-2. Si no, se normaliza el nombre (sin tildes, mayúsculas, palabras vacías ni orden) y la medida (`1 Kg` = `1000 grs`). Con medidas distintas son productos distintos; si no, se exige al menos 60 % de palabras en común.
+2. Si no, se normaliza el nombre (sin tildes, mayúsculas, palabras vacías ni orden) y la medida (`1 Kg` = `1000 grs`; los packs llevan la cantidad: `6 x 1 L` y `Pack x 6 1 L` = `6x1000ml`). Con medidas distintas son productos distintos; si no, se exige al menos 60 % de palabras en común, u 80 % si solo uno de los dos tiene medida.
+3. Un producto entra a un grupo solo si es equivalente a todos los del grupo, así un nombre sin medida no une presentaciones distintas.
 
 ---
 
@@ -184,7 +207,6 @@ python -m pytest tests/ -m "not navegador"   # sin las pruebas que abren Chromiu
 ## 9. Pendientes
 
 - [ ] Probar los scrapers contra los sitios reales y ajustar selectores si cambiaron.
-- [ ] Scrapers completos para Frog y Kinko.
 - [ ] Gráfico de evolución de precios en la web (el historial ya está en la API).
 - [ ] Alertas de cambios de precio.
 - [ ] Autenticación y rate limiting en la API.
