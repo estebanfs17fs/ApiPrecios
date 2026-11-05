@@ -21,7 +21,8 @@ STOPWORDS = {
 
 # unidad -> (unidad base, factor)
 _UNIDADES = {
-    "kg": ("g", 1000), "kgs": ("g", 1000), "kilo": ("g", 1000), "kilos": ("g", 1000),
+    "kg": ("g", 1000), "kgs": ("g", 1000), "k": ("g", 1000), "kilo": ("g", 1000),
+    "kilos": ("g", 1000),
     "g": ("g", 1), "gr": ("g", 1), "grs": ("g", 1), "gramos": ("g", 1),
     "l": ("ml", 1000), "lt": ("ml", 1000), "lts": ("ml", 1000), "litro": ("ml", 1000),
     "litros": ("ml", 1000),
@@ -30,9 +31,17 @@ _UNIDADES = {
     "uds": ("un", 1),
 }
 
-_RE_MEDIDA = re.compile(
-    r"(\d+(?:[.,]\d+)?)\s*(" + "|".join(sorted(_UNIDADES, key=len, reverse=True)) + r")\b"
+_ALTERNATIVAS = "|".join(sorted(_UNIDADES, key=len, reverse=True))
+_UNIDAD = "(?:" + _ALTERNATIVAS + r")\b"
+# "6 x 1 l", "6x330ml": cantidad de envases delante de la medida
+_RE_PACK_DELANTE = re.compile(r"\b(\d+)\s*x\s*(?=\d+(?:[.,]\d+)?\s*" + _UNIDAD + ")")
+# "pack x 6", "x6": cantidad de envases que no es una medida
+# (los metros no son medida, pero "x 30 m" tampoco es un pack)
+_RE_PACK = re.compile(
+    r"(?:\bpack\s*x?|\bx)\s*(\d+)\b(?![.,]\d)"
+    r"(?!\s*(?:" + _ALTERNATIVAS + r"|m|mt|mts|metros|cm)\b)"
 )
+_RE_MEDIDA = re.compile(r"(\d+(?:[.,]\d+)?)\s*(" + _ALTERNATIVAS + r")\b")
 _RE_EAN = re.compile(r"^\d{8,14}$")
 
 
@@ -48,56 +57,35 @@ def normalizar_texto(texto: str) -> str:
     return re.sub(r"\s+", " ", texto).strip()
 
 
-_UNIDADES_PESO_VOLUMEN = [u for u, (base, _) in _UNIDADES.items() if base != "un"]
-_U = "|".join(sorted(_UNIDADES_PESO_VOLUMEN, key=len, reverse=True))
-_NUM = r"\d+(?:[.,]\d+)?"
-# packs: "6 x 500 g", "500 g x 6", "pack x 6", "x6", "x 3 un"
-_RE_PACKS = [
-    re.compile(rf"\b(\d+)\s*x\s*{_NUM}\s*(?:{_U})\b"),
-    re.compile(rf"{_NUM}\s*(?:{_U})\s*x\s*(\d+)\b"),
-    re.compile(r"\b(?:pack|paquete|display|caja|bandeja)\s*(?:x|de)?\s*(\d+)\b"),
-    re.compile(rf"\bx\s*(\d+)(?![.,]?\d*\s*(?:{_U})\b)"),
-]
-
-
-def extraer_cantidad(texto: str) -> int:
-    """Cuántas unidades trae el pack: 'Pack x 6 Agua 500 ml' -> 6. 1 si no es pack."""
-    t = normalizar_texto(texto)
-    for patron in _RE_PACKS:
-        m = patron.search(t)
-        if m:
-            n = int(m.group(1))
-            if 2 <= n <= 100:
-                return n
-    return 1
+def _formatear(total: float, base: str) -> str:
+    total_txt = str(int(total)) if total == int(total) else f"{total:g}"
+    return f"{total_txt}{base}"
 
 
 def extraer_medida(texto: str) -> Optional[str]:
     """
     Devuelve la medida normalizada, p. ej. '1 Kg' -> '1000g', '1,5L' -> '1500ml'.
-    Los packs llevan la cantidad adelante: 'Agua 500 ml pack x 6' -> '6x500ml',
-    así no se confunden con la unidad suelta.
+    Los packs llevan la cantidad de envases delante: 'Pack x 6 1 L' y
+    '6 x 1 L' -> '6x1000ml', así no se confunden con la unidad suelta.
     """
-    t = normalizar_texto(texto)
-    medidas = list(_RE_MEDIDA.finditer(t))
-    if not medidas:
-        return None
-    # preferir peso o volumen antes que "unidades"
-    m = next((x for x in medidas if _UNIDADES[x.group(2)][0] != "un"), medidas[0])
+    normal = normalizar_texto(texto)
+    m = _RE_MEDIDA.search(normal)
+    pack = _RE_PACK_DELANTE.search(normal) or _RE_PACK.search(normal)
+    envases = int(pack.group(1)) if pack else 1
+    if not m:
+        return f"{envases}un" if envases > 1 else None
     valor = float(m.group(1).replace(",", "."))
     base, factor = _UNIDADES[m.group(2)]
-    total = valor * factor
-    total_txt = str(int(total)) if total == int(total) else f"{total:g}"
-    medida = f"{total_txt}{base}"
-    cantidad = extraer_cantidad(texto)
-    if base != "un" and cantidad > 1:
-        medida = f"{cantidad}x{medida}"
-    return medida
+    medida = _formatear(valor * factor, base)
+    if base == "un":
+        return _formatear(valor * envases, base)
+    return f"{envases}x{medida}" if envases > 1 else medida
 
 
 def tokens(texto: str) -> Set[str]:
     """Palabras significativas del nombre, sin la medida ni palabras vacías."""
     limpio = _RE_MEDIDA.sub(" ", normalizar_texto(texto))
+    limpio = _RE_PACK.sub(" ", _RE_PACK_DELANTE.sub(" ", limpio))
     limpio = re.sub(r"[.,]", " ", limpio)
     return {t for t in limpio.split() if t not in STOPWORDS and len(t) > 1}
 

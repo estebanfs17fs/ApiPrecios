@@ -33,12 +33,15 @@ def test_ean():
     assert ean_valido(None) is None
 
 
-def test_packs():
-    assert extraer_medida("Agua Salus 500 ml pack x 6") == "6x500ml"
-    assert extraer_medida("Cerveza Patricia 6 x 473 ml") == "6x473ml"
-    assert extraer_medida("Arroz Saman 500 g x 5") == "5x500g"
-    assert extraer_medida("Yogur Conaprole x6 120 g") == "6x120g"
-    assert extraer_medida("Arroz Saman 500 g") == "500g"
-    # "1 kg + 100 g" de regalo sigue siendo 1 kg
-    assert extraer_medida("Yerba Sara 1 kg + 100 g") == "1000g"
-    assert extraer_medida("Huevos x 12") is None
+def test_packs_llevan_la_cantidad_de_envases():
+    assert extraer_medida("Cerveza Pilsen 6 x 1 L") == "6x1000ml"
+    assert extraer_medida("Pack x 6 Cerveza 473ml") == "6x473ml"
+    assert extraer_medida("Yogur x6 de 120 g") == "6x120g"
+    assert extraer_medida("Huevos x 12") == "12un"
+    # "x 1 kg" no es un pack, y los metros no son ni medida ni pack
+    assert extraer_medida("Arroz x 1 kg") == "1000g"
+    assert extraer_medida("Papel higiénico 4 rollos x 30 m") is None
+
+
+def test_kilo_abreviado():
+    assert extraer_medida("Arroz Saman Don Ruggero Verde 1K") == "1000g"

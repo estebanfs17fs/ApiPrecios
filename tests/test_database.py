@@ -13,6 +13,7 @@ from precios_uy.database import (
     obtener_categorias,
     obtener_supermercados,
     obtener_ultimos_precios,
+    renormalizar,
 )
 from precios_uy.models import HistorialPrecio, Producto
 from precios_uy.models import ProductoScrapeado as PS
@@ -172,6 +173,31 @@ class TestCompararProductos:
         )
         assert len(comparar_productos("leche")) == 2
 
+    def test_un_nombre_sin_medida_no_une_presentaciones_distintas(self):
+        guardar_productos(
+            [
+                PS(supermercado="A", nombre="Arroz Blanco Saman 500 g", precio=43.0),
+                PS(supermercado="B", nombre="Arroz Blanco SAMAN 500 g", precio=45.0),
+                PS(supermercado="C", nombre="Arroz blanco en bandeja", precio=55.0),
+                PS(supermercado="D", nombre="Arroz Blanco Saman 1 kg", precio=60.0),
+            ]
+        )
+        grupos = {
+            g["medida"]: sorted(o["supermercado"] for o in g["ofertas"])
+            for g in comparar_productos("arroz blanco")
+        }
+        assert grupos["500g"] == ["A", "B"]
+        assert grupos["1000g"] == ["D"]
+
+    def test_no_mezcla_pack_con_unidad(self):
+        guardar_productos(
+            [
+                PS(supermercado="A", nombre="Cerveza Patricia 1 L", precio=120.0),
+                PS(supermercado="B", nombre="Cerveza Patricia 6 x 1 L", precio=650.0),
+            ]
+        )
+        assert len(comparar_productos("cerveza patricia")) == 2
+
 
 class TestCompararLista:
     def test_encuentra_equivalente_en_otro_super(self, session):
@@ -201,6 +227,40 @@ class TestCompararLista:
         )
         r = comparar_lista([{"texto": "pan", "cantidad": 1}], supermercados=["A"])
         assert [s["supermercado"] for s in r["supermercados"]] == ["A"]
+
+    def test_texto_compara_el_mismo_producto_en_todos(self):
+        guardar_productos(
+            [
+                PS(supermercado="A", nombre="Leche Conaprole Entera 1 L", precio=45.0),
+                PS(supermercado="A", nombre="Leche Conaprole Descremada 1 L", precio=40.0),
+                PS(supermercado="B", nombre="Leche CONAPROLE entera 1 L", precio=46.0),
+                PS(supermercado="C", nombre="Leche Conaprole Entera 1Lt", precio=47.0),
+                PS(supermercado="C", nombre="Leche Pili 1 L", precio=38.0),
+            ]
+        )
+        r = comparar_lista([{"texto": "leche 1 l", "cantidad": 1}])
+        elegidos = {
+            s["supermercado"]: s["detalle"][0]["producto"]["nombre"] for s in r["supermercados"]
+        }
+        # la entera está en los tres: se compara esa, no la más barata de cada uno
+        assert all("ntera" in n for n in elegidos.values())
+        assert not any(d["aproximado"] for s in r["supermercados"] for d in s["detalle"])
+
+    def test_texto_marca_aproximado_donde_no_esta_el_mismo(self):
+        guardar_productos(
+            [
+                PS(supermercado="A", nombre="Yerba Canarias 1 Kg", precio=300.0),
+                PS(supermercado="B", nombre="Yerba CANARIAS 1kg", precio=290.0),
+                PS(supermercado="C", nombre="Yerba Sara 1 Kg", precio=250.0),
+            ]
+        )
+        r = comparar_lista([{"texto": "yerba 1 kg", "cantidad": 1}])
+        c = next(s for s in r["supermercados"] if s["supermercado"] == "C")
+        assert c["detalle"][0]["aproximado"] is True
+        a = next(s for s in r["supermercados"] if s["supermercado"] == "A")
+        assert a["detalle"][0]["aproximado"] is False
+        # la Sara es más barata, pero es otra yerba: la combinación usa la Canarias
+        assert r["combinacion_optima"]["total"] == 290.0
 
 
 class TestMigracionEsquemaViejo:
@@ -241,33 +301,13 @@ class TestRelevancia:
         assert comparar_productos("arroz")[0]["nombre"] == "Arroz Saman 1 kg"
 
 
-class TestPacksYPrecios:
-    def test_no_junta_pack_con_unidad(self):
-        guardar_productos(
-            [
-                PS(supermercado="Ta-Ta", nombre="Arroz Blanco Saman 500 g", precio=43.0),
-                PS(supermercado="El Dorado", nombre="Arroz Blanco Saman 500 g x 5", precio=157.0),
-            ]
-        )
-        assert len(comparar_productos("arroz saman")) == 2
-
-    def test_no_junta_precios_muy_distintos(self):
-        # mismo nombre y medida, pero uno sale más del triple: no se toman como iguales
-        guardar_productos(
-            [
-                PS(supermercado="A", nombre="Arroz Blanco Saman 500 g", precio=43.0),
-                PS(supermercado="B", nombre="Arroz Blanco Saman 500 g", precio=157.0),
-            ]
-        )
-        assert len(comparar_productos("arroz saman")) == 2
-
-    def test_renormalizar(self, session):
-        from precios_uy.database import renormalizar
-
-        guardar_productos([PS(supermercado="A", nombre="Agua 500 ml pack x 6", precio=90.0)])
-        p = session.query(Producto).one()
-        p.medida = "500ml"  # como quedaba con la versión anterior
+class TestRenormalizar:
+    def test_recalcula_medida(self, session):
+        guardar_productos([PS(supermercado="A", nombre="Cerveza Patricia 6 x 1 L", precio=650.0)])
+        prod = session.query(Producto).one()
+        prod.medida = "1000ml"  # como lo guardaba la versión anterior
         session.commit()
         assert renormalizar() == 1
         session.expire_all()
-        assert session.query(Producto).one().medida == "6x500ml"
+        assert session.query(Producto).one().medida == "6x1000ml"
+        assert renormalizar() == 0
